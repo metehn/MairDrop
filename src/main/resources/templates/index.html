@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MairDrop</title>
+    <link rel="icon" type="image/png" th:href="@{/favicon.png}">
+
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.5.1/dist/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+
+<div class="connection-status disconnected" id="connectionStatus">
+    <div class="status-dot"></div>
+    <span>Connecting...</span>
+</div>
+
+<div class="container">
+    <div class="header">
+        <h1>📁 P2P File Sharing</h1>
+        <div class="device-id">
+            🖥️ Device ID: <strong id="deviceIdSpan"></strong>
+        </div>
+    </div>
+
+    <div class="content">
+        <div id="alertContainer"></div>
+
+        <div class="section">
+            <h2>📤 Send File</h2>
+
+            <div class="file-input-wrapper" id="fileInputWrapper">
+                <input type="file" id="fileInput" />
+                <div class="file-icon">📎</div>
+                <div>
+                    <strong>Click to select the file.</strong>
+                    <p style="margin-top: 10px; color: #6c757d;">or drag and drop</p>
+                </div>
+            </div>
+
+            <div class="file-info" id="fileInfo">
+                <strong>Selected File:</strong> <span id="fileName"></span><br>
+                <strong>Size:</strong> <span id="fileSize"></span>
+            </div>
+
+            <button class="btn" id="sendBtn" disabled>
+                📤 Send
+            </button>
+
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill">0%</div>
+                </div>
+                <p style="text-align: center; margin-top: 10px; color: #6c757d;">
+                    <span id="progressText">Preparing...</span>
+                </p>
+                <p class="transfer-speed" id="transferSpeed"></p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🌐 Connected Devices</h2>
+            <div id="deviceList">
+                <div class="empty-state">
+                    <div class="empty-state-icon">🔍</div>
+                    <p>No devices connected yet</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script th:src="@{/js/ui-manager.js}"></script>
+<script th:src="@{/js/websocket-service.js}"></script>
+<script th:src="@{/js/webrtc-service.js}"></script>
+<script th:src="@{/js/app.js}"></script>
+
+</body>
+</html>
