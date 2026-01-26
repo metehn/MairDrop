@@ -71,7 +71,7 @@ jobs:
             # Docker güncelle
             docker pull ghcr.io/${{ github.repository_owner }}/mairdrop:latest
             # Eski konteyneri temizle
-            docker stop mairdrop-app || true
-            docker rm mairdrop-app || true
+            docker stop mairdrop || true
+            docker rm mairdrop || true
             # Yeni konteyneri çalıştır
-            docker run -d --name mairdrop-app -p 8080:8080 --restart always ghcr.io/${{ github.repository_owner }}/mairdrop:latest
+            docker run -d --name mairdrop -p 8080:8080 --restart always ghcr.io/${{ github.repository_owner }}/mairdrop:latest
