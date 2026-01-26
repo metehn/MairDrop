@@ -2,10 +2,10 @@ const UI = {
     updateConnectionStatus: (connected) => {
         const statusEl = document.getElementById('connectionStatus');
         if (connected) {
-            statusEl.innerHTML = '<div class="status-dot"></div><span>🟢 Bağlı</span>';
+            statusEl.innerHTML = '<div class="status-dot"></div><span>🟢 Connected</span>';
             statusEl.className = 'connection-status connected';
         } else {
-            statusEl.innerHTML = '<div class="status-dot"></div><span>🔴 Bağlantı Kesildi</span>';
+            statusEl.innerHTML = '<div class="status-dot"></div><span>🔴 Connection Lost</span>';
             statusEl.className = 'connection-status disconnected';
         }
     },
