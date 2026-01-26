@@ -27,7 +27,6 @@ jobs:
       - name: Maven Build and Test
         run: mvn clean verify
 
-      # RAPORLAMA:
       - name: Upload Jacoco Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -35,7 +34,7 @@ jobs:
           path: target/site/jacoco/
 
       - name: Jacoco Report to PR
-        if: github.event_name == 'pull_request' # Sadece PR'larda yorum yap
+        if: github.event_name == 'pull_request'
         uses: madrapps/jacoco-report@v1.7.1
         with:
           paths: ${{ github.workspace }}/target/site/jacoco/jacoco.xml
@@ -77,16 +76,15 @@ jobs:
             # Yeni imajı çek
             docker pull ghcr.io/${{ github.repository_owner }}/mairdrop:latest
 
-            # 1. Adım: 8080 portunu kullanan HERHANGİ BİR konteyneri durdur
-            EXISTING_CONTAINER=$(docker ps -q --filter "publish=8080")
-            if [ ! -z "$EXISTING_CONTAINER" ]; then
-              docker stop $EXISTING_CONTAINER
-              docker rm $EXISTING_CONTAINER
+            # 1. 8080 portunu kullanan her şeyi ve tüm olası isimleri sil
+            docker stop mairdrop mairdrop-app || true
+            docker rm mairdrop mairdrop-app || true
+            
+            # Portu hala işgal eden isimsiz bir şey varsa onu da yakala
+            PORT_PID=$(docker ps -q --filter "publish=8080")
+            if [ ! -z "$PORT_PID" ]; then
+              docker stop $PORT_PID && docker rm $PORT_PID
             fi
 
-            # 2. Adım: İsim çakışması ihtimaline karşı 'mairdrop' ismini temizle
-            docker stop mairdrop || true
-            docker rm mairdrop || true
-
-            # 3. Adım: Yeni konteyneri başlat
+            # 2. KURULUM: Tek bir isimle (mairdrop) başlat
             docker run -d --name mairdrop -p 8080:8080 --restart always ghcr.io/${{ github.repository_owner }}/mairdrop:latest
