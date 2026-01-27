@@ -24,14 +24,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Maven Build and Test
-        run: mvn clean verify -Dskip.checkstyle=true
-
-      - name: Checkstyle Review
-        uses: dbelyaev/action-checkstyle@master
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          level: error
+      # Checkstyle ve JaCoCo verify fazında otomatik çalışacaktır
+      - name: Maven Build, Test and Checkstyle
+        run: mvn clean verify
 
       - name: Upload Jacoco Artifact
         uses: actions/upload-artifact@v4
@@ -46,7 +41,7 @@ jobs:
           paths: ${{ github.workspace }}/target/site/jacoco/jacoco.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           min-coverage-overall: 80
-          title: "🚀 Mairdrop Code Coverage Report"
+          title: "🚀 Mairdrop Code Coverage Raporu"
 
       - name: Login to GHCR
         if: github.ref == 'refs/heads/master'
@@ -76,15 +71,20 @@ jobs:
           username: ${{ secrets.REMOTE_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            # GHCR Login
             echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+
+            # Yeni imajı çek
             docker pull ghcr.io/${{ github.repository_owner }}/mairdrop:latest
-            
-            docker stop mairdrop || true
-            docker rm mairdrop || true
+
+            # 1. Port ve Konteyner Temizliği
+            docker stop mairdrop mairdrop-app || true
+            docker rm mairdrop mairdrop-app || true
             
             PORT_PID=$(docker ps -q --filter "publish=8080")
             if [ ! -z "$PORT_PID" ]; then
               docker stop $PORT_PID && docker rm $PORT_PID
             fi
 
+            # 2. Kurulum
             docker run -d --name mairdrop -p 8080:8080 --restart always ghcr.io/${{ github.repository_owner }}/mairdrop:latest
