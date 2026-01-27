@@ -24,7 +24,8 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Maven Build and Test
+      # Checkstyle ve JaCoCo verify fazında otomatik çalışacaktır
+      - name: Maven Build, Test and Checkstyle
         run: mvn clean verify
 
       - name: Upload Jacoco Artifact
@@ -76,15 +77,14 @@ jobs:
             # Yeni imajı çek
             docker pull ghcr.io/${{ github.repository_owner }}/mairdrop:latest
 
-            # 1. 8080 portunu kullanan her şeyi ve tüm olası isimleri sil
+            # 1. Port ve Konteyner Temizliği
             docker stop mairdrop mairdrop-app || true
             docker rm mairdrop mairdrop-app || true
             
-            # Portu hala işgal eden isimsiz bir şey varsa onu da yakala
             PORT_PID=$(docker ps -q --filter "publish=8080")
             if [ ! -z "$PORT_PID" ]; then
               docker stop $PORT_PID && docker rm $PORT_PID
             fi
 
-            # 2. KURULUM: Tek bir isimle (mairdrop) başlat
+            # 2. Kurulum
             docker run -d --name mairdrop -p 8080:8080 --restart always ghcr.io/${{ github.repository_owner }}/mairdrop:latest
