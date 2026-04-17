@@ -10,7 +10,7 @@ const UI = {
         }
     },
 
-    updateDeviceList: (devices, currentDeviceId, targetDeviceId, onSelect) => {
+    updateDeviceList: (devices, currentDeviceId, hasFile, onSend, isTransferring) => {
         const listDiv = document.getElementById('deviceList');
         const otherDevices = devices.filter(d => d !== currentDeviceId);
 
@@ -21,23 +21,54 @@ const UI = {
 
         listDiv.innerHTML = '';
         otherDevices.forEach(device => {
+            const transferring = isTransferring(device);
             const div = document.createElement('div');
-            div.className = `device-item ${device === targetDeviceId ? 'selected' : ''}`;
-            div.innerHTML = `<div><strong>🖥️ ${device}</strong><small style="display: block; opacity: 0.7;">Çevrimiçi</small></div><div>✓</div>`;
-            div.onclick = () => onSelect(device);
+            div.className = 'device-item';
+            div.innerHTML = `
+                <div class="device-item-top">
+                    <div><strong>🖥️ ${device}</strong><small style="display:block;opacity:0.7;">Online</small></div>
+                    <button class="btn-send" ${(hasFile && !transferring) ? '' : 'disabled'}>
+                        ${transferring ? '⏳ Sending...' : '📤 Send'}
+                    </button>
+                </div>
+                <div class="device-progress" id="progress-${device}" style="display:none">
+                    <div class="progress-bar-sm">
+                        <div class="progress-fill-sm" id="progress-fill-${device}">0%</div>
+                    </div>
+                    <span class="progress-label" id="progress-text-${device}"></span>
+                </div>`;
+            div.querySelector('.btn-send').onclick = () => onSend(device);
             listDiv.appendChild(div);
         });
     },
 
-    updateProgress: (percent, text) => {
-        const fill = document.getElementById('progressFill');
-        const progressText = document.getElementById('progressText');
-        const container = document.getElementById('progressContainer');
-
+    updateProgress: (peerId, percent, text) => {
+        const container = document.getElementById(`progress-${peerId}`);
+        const fill = document.getElementById(`progress-fill-${peerId}`);
+        const label = document.getElementById(`progress-text-${peerId}`);
+        if (!container) return;
         container.style.display = 'block';
         fill.style.width = Math.min(percent, 100) + '%';
         fill.textContent = Math.min(percent, 100) + '%';
-        progressText.textContent = text;
+        label.textContent = text;
+    },
+
+    showConfirm: (message, onAccept, onDecline) => {
+        const overlay = document.getElementById('modalOverlay');
+        document.getElementById('modalMessage').textContent = message;
+        overlay.style.display = 'flex';
+
+        const accept = document.getElementById('modalAccept');
+        const decline = document.getElementById('modalDecline');
+
+        const cleanup = () => {
+            overlay.style.display = 'none';
+            accept.onclick = null;
+            decline.onclick = null;
+        };
+
+        accept.onclick = () => { cleanup(); onAccept(); };
+        decline.onclick = () => { cleanup(); if (onDecline) onDecline(); };
     },
 
     showAlert: (message, type) => {

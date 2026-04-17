@@ -32,9 +32,4 @@ const SocketService = {
         }
     },
 
-    refreshDevices: (deviceId) => {
-        if (stompClient && stompClient.connected) {
-            stompClient.send('/app/register', {}, deviceId);
-        }
-    }
 };
