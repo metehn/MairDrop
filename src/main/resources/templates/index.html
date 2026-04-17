@@ -18,6 +18,16 @@
     <span>Connecting...</span>
 </div>
 
+<div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+        <p id="modalMessage"></p>
+        <div class="modal-buttons">
+            <button class="btn-accept" id="modalAccept">✅ Accept</button>
+            <button class="btn-decline" id="modalDecline">❌ Decline</button>
+        </div>
+    </div>
+</div>
+
 <div class="container">
     <div class="header">
         <h1>📁 P2P File Sharing</h1>
@@ -44,20 +54,6 @@
             <div class="file-info" id="fileInfo">
                 <strong>Selected File:</strong> <span id="fileName"></span><br>
                 <strong>Size:</strong> <span id="fileSize"></span>
-            </div>
-
-            <button class="btn" id="sendBtn" disabled>
-                📤 Send
-            </button>
-
-            <div class="progress-container" id="progressContainer">
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill">0%</div>
-                </div>
-                <p style="text-align: center; margin-top: 10px; color: #6c757d;">
-                    <span id="progressText">Preparing...</span>
-                </p>
-                <p class="transfer-speed" id="transferSpeed"></p>
             </div>
         </div>
 
