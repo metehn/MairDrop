@@ -27,14 +27,14 @@ public class WebSocketEventListener {
         String sessionId = event.getSessionId();
         String deviceId = deviceService.getDeviceIdBySessionId(sessionId);
 
-        log.info("Connecion lost! Session: {}, Device: {}", sessionId, deviceId);
+        log.info("Connection lost! Session: {}, Device: {}", sessionId, deviceId);
 
         if (deviceId != null) {
             String group = deviceService.getGroup(deviceId);
-            deviceService.unregisterDevice(deviceId);
+            deviceService.unregisterDevice(deviceId, sessionId);
             if (group != null) {
                 List<String> devices = deviceService.getActiveDevicesInGroup(group);
-                log.info("Group [{}] It is being updated after being disconnected..", group);
+                log.info("Group [{}] being updated after disconnect..", group);
                 for (String id : devices) {
                     messagingTemplate.convertAndSend("/topic/devices/" + id, devices);
                 }

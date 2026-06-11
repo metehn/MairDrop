@@ -33,24 +33,34 @@
             <h2>📤 Send File</h2>
 
             <div class="file-input-wrapper" id="fileInputWrapper">
-                <input type="file" id="fileInput" />
+                <input type="file" id="fileInput" multiple />
                 <div class="file-icon">📎</div>
                 <div>
-                    <strong>Click to select the file.</strong>
-                    <p style="margin-top: 10px; color: #6c757d;">or drag and drop</p>
+                    <strong>Click to select file(s).</strong>
+                    <p style="margin-top: 10px; color: #6c757d;">or drag and drop — multiple files supported</p>
                 </div>
             </div>
 
             <div class="file-info" id="fileInfo">
-                <strong>Selected File:</strong> <span id="fileName"></span><br>
-                <strong>Size:</strong> <span id="fileSize"></span>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <strong id="fileCountLabel">Selected file</strong>
+                    <button type="button" id="clearFilesBtn" style="padding:5px 12px;background:#e9ecef;border:none;border-radius:6px;cursor:pointer;font-size:0.85em;">✕ Clear</button>
+                </div>
+                <ul id="fileList" style="list-style:none;padding:0;margin:0;max-height:180px;overflow-y:auto;"></ul>
+                <div style="margin-top:10px;padding-top:10px;border-top:1px solid #dee2e6;display:flex;justify-content:space-between;">
+                    <strong>Total:</strong>
+                    <span id="fileSize" style="font-weight:bold;color:#667eea;"></span>
+                </div>
             </div>
 
-            <button class="btn" id="sendBtn" disabled>
-                📤 Send
-            </button>
+            <p id="sendHint" style="margin-top:15px;color:#667eea;font-weight:bold;text-align:center;display:none;">
+                ↓ Pick a device below to send to ↓
+            </p>
+        </div>
 
-            <div class="progress-container" id="progressContainer">
+        <div class="section" id="transferSection" style="display:none;">
+            <h2>📊 Transfer Status</h2>
+            <div class="progress-container" id="progressContainer" style="display:block;">
                 <div class="progress-bar">
                     <div class="progress-fill" id="progressFill">0%</div>
                 </div>
@@ -73,6 +83,7 @@
     </div>
 </div>
 
+<script th:src="@{/js/name-generator.js}"></script>
 <script th:src="@{/js/ui-manager.js}"></script>
 <script th:src="@{/js/websocket-service.js}"></script>
 <script th:src="@{/js/webrtc-service.js}"></script>

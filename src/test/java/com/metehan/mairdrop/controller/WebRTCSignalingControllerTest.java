@@ -12,6 +12,9 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -56,5 +59,57 @@ class WebRTCSignalingControllerTest {
         signalingController.handleIceCandidate(payload);
 
         verify(messagingTemplate).convertAndSend("/topic/webrtc/" + targetId, payload);
+    }
+
+    @Test
+    @DisplayName("Offer with null targetDeviceId should be dropped without forwarding")
+    void shouldDropOfferWhenTargetDeviceIdIsNull() {
+        Map<String, Object> badPayload = new HashMap<>();
+        badPayload.put("senderDeviceId", "sender-123");
+
+        signalingController.handleOffer(badPayload);
+
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("Answer with blank targetDeviceId should be dropped without forwarding")
+    void shouldDropAnswerWhenTargetDeviceIdIsBlank() {
+        Map<String, Object> badPayload = new HashMap<>();
+        badPayload.put("targetDeviceId", "  ");
+
+        signalingController.handleAnswer(badPayload);
+
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("ICE candidate with null targetDeviceId should be dropped without forwarding")
+    void shouldDropIceCandidateWhenTargetDeviceIdIsNull() {
+        Map<String, Object> badPayload = new HashMap<>();
+        badPayload.put("senderDeviceId", "sender-123");
+
+        signalingController.handleIceCandidate(badPayload);
+
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("Decline message should be forwarded to sender's topic")
+    void shouldForwardDeclineToSender() {
+        signalingController.handleDecline(payload);
+
+        verify(messagingTemplate).convertAndSend("/topic/webrtc/" + targetId, payload);
+    }
+
+    @Test
+    @DisplayName("Decline with null targetDeviceId should be dropped without forwarding")
+    void shouldDropDeclineWhenTargetDeviceIdIsNull() {
+        Map<String, Object> badPayload = new HashMap<>();
+        badPayload.put("senderDeviceId", "sender-123");
+
+        signalingController.handleDecline(badPayload);
+
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
     }
 }

@@ -136,4 +136,54 @@ class HttpHandshakeInterceptorTest {
                 interceptor.afterHandshake(serverRequest, serverResponse, wsHandler, null)
         );
     }
+
+    @Test
+    @DisplayName("Case 10: Should identify 172.16.x.x as LOCAL_NETWORK (RFC 1918 172.16/12 range)")
+    void shouldIdentify172RangeAsLocal() {
+        when(httpServletRequest.getRemoteAddr()).thenReturn("172.16.0.5");
+
+        interceptor.beforeHandshake(serverRequest, serverResponse, wsHandler, attributes);
+
+        assertEquals(CommonConstants.LOCAL_NETWORK, attributes.get(CommonConstants.NETWORK_GROUP));
+    }
+
+    @Test
+    @DisplayName("Case 11: Should identify 172.31.x.x as LOCAL_NETWORK (upper boundary of 172.16/12)")
+    void shouldIdentify172UpperBoundaryAsLocal() {
+        when(httpServletRequest.getRemoteAddr()).thenReturn("172.31.255.255");
+
+        interceptor.beforeHandshake(serverRequest, serverResponse, wsHandler, attributes);
+
+        assertEquals(CommonConstants.LOCAL_NETWORK, attributes.get(CommonConstants.NETWORK_GROUP));
+    }
+
+    @Test
+    @DisplayName("Case 12: Should identify 172.32.x.x as external (outside 172.16/12 range)")
+    void shouldIdentify172OutsideRangeAsExternal() {
+        when(httpServletRequest.getRemoteAddr()).thenReturn("172.32.0.1");
+
+        interceptor.beforeHandshake(serverRequest, serverResponse, wsHandler, attributes);
+
+        assertEquals("172.32.0.1", attributes.get(CommonConstants.NETWORK_GROUP));
+    }
+
+    @Test
+    @DisplayName("Case 13: Should identify IPv6 short-form loopback ::1 as LOCAL_NETWORK")
+    void shouldIdentifyIpv6ShortLoopbackAsLocal() {
+        when(httpServletRequest.getRemoteAddr()).thenReturn("::1");
+
+        interceptor.beforeHandshake(serverRequest, serverResponse, wsHandler, attributes);
+
+        assertEquals(CommonConstants.LOCAL_NETWORK, attributes.get(CommonConstants.NETWORK_GROUP));
+    }
+
+    @Test
+    @DisplayName("Case 14: Should identify IPv6 link-local fe80:: as LOCAL_NETWORK")
+    void shouldIdentifyIpv6LinkLocalAsLocal() {
+        when(httpServletRequest.getRemoteAddr()).thenReturn("fe80::1");
+
+        interceptor.beforeHandshake(serverRequest, serverResponse, wsHandler, attributes);
+
+        assertEquals(CommonConstants.LOCAL_NETWORK, attributes.get(CommonConstants.NETWORK_GROUP));
+    }
 }

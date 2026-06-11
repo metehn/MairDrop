@@ -10,7 +10,7 @@ const UI = {
         }
     },
 
-    updateDeviceList: (devices, currentDeviceId, targetDeviceId, onSelect) => {
+    updateDeviceList: (devices, currentDeviceId, onSend, canSend) => {
         const listDiv = document.getElementById('deviceList');
         const otherDevices = devices.filter(d => d !== currentDeviceId);
 
@@ -22,9 +22,32 @@ const UI = {
         listDiv.innerHTML = '';
         otherDevices.forEach(device => {
             const div = document.createElement('div');
-            div.className = `device-item ${device === targetDeviceId ? 'selected' : ''}`;
-            div.innerHTML = `<div><strong>🖥️ ${device}</strong><small style="display: block; opacity: 0.7;">Çevrimiçi</small></div><div>✓</div>`;
-            div.onclick = () => onSelect(device);
+            div.className = 'device-item';
+
+            const info = document.createElement('div');
+
+            const strong = document.createElement('strong');
+            strong.textContent = '🖥️ ' + NameGenerator.getDisplayName(device);
+
+            const small = document.createElement('small');
+            small.style.cssText = 'display: block; opacity: 0.7;';
+            small.textContent = 'Online';
+
+            info.appendChild(strong);
+            info.appendChild(small);
+
+            const sendBtn = document.createElement('button');
+            sendBtn.className = 'device-send-btn';
+            sendBtn.textContent = '📤 Send';
+            sendBtn.disabled = !canSend;
+            sendBtn.title = canSend ? 'Send selected file(s)' : 'Select file(s) first';
+            sendBtn.onclick = (e) => {
+                e.stopPropagation();
+                onSend(device);
+            };
+
+            div.appendChild(info);
+            div.appendChild(sendBtn);
             listDiv.appendChild(div);
         });
     },
@@ -32,12 +55,18 @@ const UI = {
     updateProgress: (percent, text) => {
         const fill = document.getElementById('progressFill');
         const progressText = document.getElementById('progressText');
-        const container = document.getElementById('progressContainer');
+        const section = document.getElementById('transferSection');
 
-        container.style.display = 'block';
-        fill.style.width = Math.min(percent, 100) + '%';
-        fill.textContent = Math.min(percent, 100) + '%';
+        if (section) section.style.display = 'block';
+        const clamped = Math.min(Math.max(percent, 0), 100);
+        fill.style.width = clamped + '%';
+        fill.textContent = clamped + '%';
         progressText.textContent = text;
+    },
+
+    hideProgress: () => {
+        const section = document.getElementById('transferSection');
+        if (section) section.style.display = 'none';
     },
 
     showAlert: (message, type) => {
@@ -48,6 +77,14 @@ const UI = {
         alert.style.display = 'block';
         container.appendChild(alert);
         setTimeout(() => alert.remove(), 5000);
+    },
+
+    updateTransferSpeed: (bytesPerSecond) => {
+        const el = document.getElementById('transferSpeed');
+        if (!el) return;
+        el.textContent = bytesPerSecond > 0
+            ? `Speed: ${UI.formatFileSize(Math.round(bytesPerSecond))}/s`
+            : '';
     },
 
     formatFileSize: (bytes) => {

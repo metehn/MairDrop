@@ -11,6 +11,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 
 import java.util.List;
+import java.util.Map;
 
 @Controller
 public class WebSocketController {
@@ -25,7 +26,16 @@ public class WebSocketController {
 
     @MessageMapping("/register")
     public void register(@Payload String deviceId, SimpMessageHeaderAccessor headerAccessor) {
-        String group = (String) headerAccessor.getSessionAttributes().get(CommonConstants.NETWORK_GROUP);
+        if (deviceId == null || deviceId.isBlank()) {
+            log.warn("Registration dropped: deviceId is missing");
+            return;
+        }
+        Map<String, Object> attrs = headerAccessor.getSessionAttributes();
+        String group = (attrs != null) ? (String) attrs.get(CommonConstants.NETWORK_GROUP) : null;
+        if (group == null) {
+            log.warn("Registration dropped for {}: network group missing (handshake skipped)", deviceId);
+            return;
+        }
         deviceService.registerDevice(deviceId, headerAccessor.getSessionId(), group);
         log.info("Registration request has arrived: {} -> Group: {}", deviceId, group);
         broadcastList(group);

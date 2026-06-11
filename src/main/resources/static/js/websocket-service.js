@@ -1,29 +1,67 @@
 let stompClient = null;
+let activeSocket = null;
+let reconnectTimer = null;
+
+const STOMP_HEARTBEAT_MS = 10000;
+const RECONNECT_DELAY_MS = 3000;
+
+const closePreviousSocket = () => {
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    if (stompClient && stompClient.connected) {
+        try { stompClient.disconnect(() => {}); } catch (e) { /* ignore */ }
+    }
+    if (activeSocket) {
+        try { activeSocket.close(); } catch (e) { /* ignore */ }
+    }
+    stompClient = null;
+    activeSocket = null;
+};
 
 const SocketService = {
     connect: (deviceId, callbacks) => {
-        const socket = new SockJS('/ws');
-        stompClient = Stomp.over(socket);
-        stompClient.debug = null;
+        closePreviousSocket();
 
-        stompClient.connect({}, () => {
+        activeSocket = new SockJS('/ws');
+        stompClient = Stomp.over(activeSocket);
+        stompClient.debug = null;
+        // STOMP-level heartbeat detects dead connections without waiting for TCP timeout
+        stompClient.heartbeat.outgoing = STOMP_HEARTBEAT_MS;
+        stompClient.heartbeat.incoming = STOMP_HEARTBEAT_MS;
+
+        const onConnected = () => {
             UI.updateConnectionStatus(true);
 
-            // Listen to the device list
             stompClient.subscribe('/topic/devices/' + deviceId, (msg) => {
-                callbacks.onDevicesUpdate(JSON.parse(msg.body));
+                try {
+                    callbacks.onDevicesUpdate(JSON.parse(msg.body));
+                } catch (e) {
+                    console.warn('Bad device list payload:', e);
+                }
             });
 
-            // Listen for WebRTC signals
             stompClient.subscribe('/topic/webrtc/' + deviceId, (msg) => {
-                callbacks.onSignal(JSON.parse(msg.body));
+                try {
+                    callbacks.onSignal(JSON.parse(msg.body));
+                } catch (e) {
+                    console.warn('Bad signal payload:', e);
+                }
             });
 
             stompClient.send('/app/register', {}, deviceId);
-        }, (error) => {
+        };
+
+        const onError = () => {
             UI.updateConnectionStatus(false);
-            setTimeout(() => SocketService.connect(deviceId, callbacks), 3000);
-        });
+            reconnectTimer = setTimeout(
+                () => SocketService.connect(deviceId, callbacks),
+                RECONNECT_DELAY_MS
+            );
+        };
+
+        stompClient.connect({}, onConnected, onError);
     },
 
     sendSignal: (type, data) => {

@@ -23,18 +23,36 @@ public class HttpHandshakeInterceptor implements HandshakeInterceptor {
             HttpServletRequest httpRequest = servletRequest.getServletRequest();
             String ip = getClientIp(httpRequest);
 
-            String group = ip;
-            if (ip.startsWith("192.168.") ||
-                    ip.startsWith("10.") ||
-                    ip.equals("127.0.0.1") ||
-                    ip.equals("0:0:0:0:0:0:0:1")) {
-                group = CommonConstants.LOCAL_NETWORK;
-            }
+            String group = isLocalNetwork(ip) ? CommonConstants.LOCAL_NETWORK : ip;
 
             attributes.put(CommonConstants.NETWORK_GROUP, group);
             log.info("Handshake IP: {} -> Group: {}", ip, group);
         }
         return true;
+    }
+
+    private boolean isLocalNetwork(String ip) {
+        return ip.startsWith("192.168.")
+                || ip.startsWith("10.")
+                || (ip.startsWith("172.") && isPrivate172(ip))
+                || ip.equals("127.0.0.1")
+                || ip.equals("::1")
+                || ip.equals("0:0:0:0:0:0:0:1")
+                || ip.startsWith("fe80:");
+    }
+
+    // RFC 1918: 172.16.0.0/12 covers 172.16.x.x through 172.31.x.x
+    private boolean isPrivate172(String ip) {
+        String[] parts = ip.split("\\.");
+        if (parts.length < 2) {
+            return false;
+        }
+        try {
+            int second = Integer.parseInt(parts[1]);
+            return second >= 16 && second <= 31;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     private String getClientIp(HttpServletRequest request) {
