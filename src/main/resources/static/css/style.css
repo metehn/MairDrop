@@ -145,12 +145,58 @@ body {
     justify-content: space-between;
     align-items: center;
     transition: all 0.3s ease;
-    cursor: pointer;
+    gap: 12px;
+}
+
+.device-item > div:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+    word-break: break-word;
 }
 
 .device-item:hover {
     transform: translateX(5px);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+}
+
+.device-send-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.95em;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    white-space: nowrap;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(102, 126, 234, 0.3);
+}
+
+.device-send-btn:hover:not(:disabled),
+.device-send-btn:active:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(102, 126, 234, 0.3);
+}
+
+.device-send-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: #adb5bd;
+}
+
+@media (max-width: 480px) {
+    .device-item {
+        padding: 12px 14px;
+        flex-wrap: wrap;
+    }
+    .device-send-btn {
+        padding: 12px 18px;
+        min-height: 44px;
+        width: 100%;
+        margin-top: 6px;
+    }
 }
 
 .device-item.selected {

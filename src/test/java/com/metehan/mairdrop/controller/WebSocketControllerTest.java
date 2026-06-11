@@ -58,4 +58,48 @@ class WebSocketControllerTest {
 
         verify(messagingTemplate, times(2)).convertAndSend(anyString(), anyList());
     }
+
+    @Test
+    @DisplayName("Registration with null deviceId should be dropped silently")
+    void shouldDropRegistrationWhenDeviceIdIsNull() {
+        SimpMessageHeaderAccessor headerAccessor = mock(SimpMessageHeaderAccessor.class);
+
+        webSocketController.register(null, headerAccessor);
+
+        verify(deviceService, never()).registerDevice(anyString(), anyString(), anyString());
+        verify(messagingTemplate, never()).convertAndSend(anyString(), anyList());
+    }
+
+    @Test
+    @DisplayName("Registration with blank deviceId should be dropped silently")
+    void shouldDropRegistrationWhenDeviceIdIsBlank() {
+        SimpMessageHeaderAccessor headerAccessor = mock(SimpMessageHeaderAccessor.class);
+
+        webSocketController.register("   ", headerAccessor);
+
+        verify(deviceService, never()).registerDevice(anyString(), anyString(), anyString());
+        verify(messagingTemplate, never()).convertAndSend(anyString(), anyList());
+    }
+
+    @Test
+    @DisplayName("Registration must not NPE when sessionAttributes is null")
+    void shouldDropRegistrationWhenSessionAttributesNull() {
+        SimpMessageHeaderAccessor headerAccessor = mock(SimpMessageHeaderAccessor.class);
+        when(headerAccessor.getSessionAttributes()).thenReturn(null);
+
+        webSocketController.register(deviceId, headerAccessor);
+
+        verify(deviceService, never()).registerDevice(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("Registration must be dropped when NETWORK_GROUP attribute missing")
+    void shouldDropRegistrationWhenGroupMissing() {
+        SimpMessageHeaderAccessor headerAccessor = mock(SimpMessageHeaderAccessor.class);
+        when(headerAccessor.getSessionAttributes()).thenReturn(new HashMap<>());
+
+        webSocketController.register(deviceId, headerAccessor);
+
+        verify(deviceService, never()).registerDevice(anyString(), anyString(), anyString());
+    }
 }
