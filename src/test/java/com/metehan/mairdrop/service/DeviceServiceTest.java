@@ -36,28 +36,29 @@ class DeviceServiceTest {
     }
 
     @Test
-    @DisplayName("Case 3: Unregister existing device with session (Branch coverage for unregisterDevice)")
+    @DisplayName("Case 3: Unregister existing device with matching session")
     void shouldUnregisterExistingDevice() {
         deviceService.registerDevice("dev1", "sess1", "groupA");
 
-        deviceService.unregisterDevice("dev1");
+        deviceService.unregisterDevice("dev1", "sess1");
 
         assertNull(deviceService.getDeviceIdBySessionId("sess1"));
         assertTrue(deviceService.getActiveDevicesInGroup("groupA").isEmpty());
     }
 
     @Test
-    @DisplayName("Case 4: Unregister device with null session (Internal branch coverage)")
+    @DisplayName("Case 4: Unregister device registered with null session")
     void shouldUnregisterDeviceWithNullSession() {
         deviceService.registerDevice("dev_no_sess", null, "groupA");
 
-        assertDoesNotThrow(() -> deviceService.unregisterDevice("dev_no_sess"));
+        assertDoesNotThrow(() -> deviceService.unregisterDevice("dev_no_sess", null));
+        assertTrue(deviceService.getActiveDevicesInGroup("groupA").isEmpty());
     }
 
     @Test
-    @DisplayName("Case 5: Unregister non-existent device (Else branch for if(session != null))")
+    @DisplayName("Case 5: Unregister non-existent device should not throw")
     void shouldHandleUnregisteringNonExistentDevice() {
-        assertDoesNotThrow(() -> deviceService.unregisterDevice("ghost_id"));
+        assertDoesNotThrow(() -> deviceService.unregisterDevice("ghost_id", "some_session"));
     }
 
     @Test
@@ -68,7 +69,7 @@ class DeviceServiceTest {
         deviceService.registerDevice("otherGroup", "s3", "groupY");
         deviceService.registerDevice("inactive", "s4", "groupX");
 
-        deviceService.unregisterDevice("inactive");
+        deviceService.unregisterDevice("inactive", "s4");
 
         List<String> results = deviceService.getActiveDevicesInGroup("groupX");
 
@@ -89,5 +90,36 @@ class DeviceServiceTest {
     @DisplayName("Case 8: Get device ID by non-existent session")
     void shouldReturnNullForMissingSession() {
         assertNull(deviceService.getDeviceIdBySessionId("missing_session"));
+    }
+
+    @Test
+    @DisplayName("Case 9: Re-registration cleans up stale session mapping")
+    void shouldCleanStaleSessionOnReRegister() {
+        deviceService.registerDevice("dev1", "old-sess", "groupA");
+        deviceService.registerDevice("dev1", "new-sess", "groupA");
+
+        assertNull(deviceService.getDeviceIdBySessionId("old-sess"),
+                "Old session should be removed after re-registration");
+        assertEquals("dev1", deviceService.getDeviceIdBySessionId("new-sess"));
+    }
+
+    @Test
+    @DisplayName("Case 9b: getActiveDevicesInGroup(null) returns empty list (no NPE)")
+    void shouldReturnEmptyListForNullGroup() {
+        deviceService.registerDevice("dev1", "sess1", "groupA");
+
+        assertTrue(deviceService.getActiveDevicesInGroup(null).isEmpty());
+    }
+
+    @Test
+    @DisplayName("Case 10: Stale disconnect should not remove device with new session")
+    void shouldIgnoreStaleDisconnectWhenSessionMismatch() {
+        deviceService.registerDevice("dev1", "new-sess", "groupA");
+
+        deviceService.unregisterDevice("dev1", "old-sess");
+
+        assertEquals("dev1", deviceService.getDeviceIdBySessionId("new-sess"),
+                "Device with new session must not be removed by stale disconnect");
+        assertFalse(deviceService.getActiveDevicesInGroup("groupA").isEmpty());
     }
 }
