@@ -50,7 +50,7 @@ class WebSocketEventListenerTest {
 
         webSocketEventListener.handleDisconnect(disconnectEvent);
 
-        verify(deviceService).unregisterDevice(deviceId);
+        verify(deviceService).unregisterDevice(deviceId, sessionId);
 
         verify(deviceService).getActiveDevicesInGroup(group);
 
@@ -67,7 +67,7 @@ class WebSocketEventListenerTest {
 
         webSocketEventListener.handleDisconnect(disconnectEvent);
 
-        verify(deviceService, never()).unregisterDevice(anyString());
+        verify(deviceService, never()).unregisterDevice(anyString(), anyString());
         verify(messagingTemplate, never()).convertAndSend(anyString(), anyList());
     }
 
@@ -79,7 +79,7 @@ class WebSocketEventListenerTest {
 
         webSocketEventListener.handleDisconnect(disconnectEvent);
 
-        verify(deviceService).unregisterDevice(deviceId);
+        verify(deviceService).unregisterDevice(deviceId, sessionId);
         verify(messagingTemplate, never()).convertAndSend(anyString(), anyList());
     }
 }
