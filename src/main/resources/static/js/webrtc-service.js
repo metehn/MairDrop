@@ -9,6 +9,8 @@ const BUFFER_LOW_WATERMARK = CHUNK_SIZE * 16;
 const HASH_TIMEOUT_MS = 15000;          // give up hashing after 15s (iCloud fetch / mobile RAM)
 const HANDSHAKE_TIMEOUT_MS = 120000;    // sender stops waiting for receiver after 2 min (mobile users take longer)
 const DIALOG_TIMEOUT_MS = 90000;        // auto-decline incoming dialog after 90s of inactivity
+const PROGRESS_ACK_INTERVAL_MS = 250;   // receiver -> sender progress sync, throttled to avoid flooding the channel
+const COMPLETION_ACK_TIMEOUT_MS = 10000; // sender waits this long for a final progress-ack before reporting failure
 
 const newConnectionState = () => ({
     peerConnection: null,
@@ -21,6 +23,7 @@ const newConnectionState = () => ({
     fileIndex: 0,
     fileOffset: 0,
     handshakeTimer: null,
+    completionTimer: null,
 
     // Receiver side
     batchFiles: null,
@@ -33,6 +36,9 @@ const newConnectionState = () => ({
     // (per-file percent reset to 0% between files made the bar jump backwards).
     totalBytes: 0,
     totalDoneBytes: 0,
+
+    // Receiver -> sender progress sync (throttled "progress-ack" messages)
+    lastAckSent: 0,
 
     transferStartTime: null,
     aborted: false
@@ -65,6 +71,10 @@ const closeConnection = (remoteDeviceId) => {
         clearTimeout(conn.handshakeTimer);
         conn.handshakeTimer = null;
     }
+    if (conn.completionTimer) {
+        clearTimeout(conn.completionTimer);
+        conn.completionTimer = null;
+    }
     try { if (conn.dataChannel) conn.dataChannel.close(); } catch (e) { /* ignore */ }
     try { if (conn.peerConnection) conn.peerConnection.close(); } catch (e) { /* ignore */ }
     conn.currentChunks = [];
@@ -78,13 +88,19 @@ const closeConnection = (remoteDeviceId) => {
     }
 };
 
-const wireIceCandidate = (conn, remoteId, selfId) => {
+const wireIceCandidate = (conn, remoteId, selfId, onIceStable) => {
     conn.peerConnection.onicecandidate = (e) => {
-        if (e.candidate) SocketService.sendSignal('ice-candidate', {
-            candidate: e.candidate,
-            targetDeviceId: remoteId,
-            senderDeviceId: selfId
-        });
+        // Some browsers signal end-of-candidates with a non-null event.candidate
+        // whose `candidate` string is empty. Relaying that produces
+        // `new RTCIceCandidate({candidate: "", ...})` on the other side, which
+        // throws "Expected candidate: got " and aborts handleOffer entirely.
+        if (e.candidate && e.candidate.candidate) {
+            SocketService.sendSignal('ice-candidate', {
+                candidate: e.candidate,
+                targetDeviceId: remoteId,
+                senderDeviceId: selfId
+            });
+        }
     };
     conn.peerConnection.oniceconnectionstatechange = () => {
         const state = conn.peerConnection.iceConnectionState;
@@ -96,6 +112,8 @@ const wireIceCandidate = (conn, remoteId, selfId) => {
                 'error'
             );
             closeConnection(remoteId);
+        } else if ((state === 'connected' || state === 'completed') && typeof onIceStable === 'function') {
+            onIceStable();
         }
     };
     conn.peerConnection.onconnectionstatechange = () => {
@@ -235,15 +253,22 @@ const sendNextFile = (conn, remoteId) => {
     if (conn.aborted) return;
     if (conn.fileIndex >= conn.files.length) {
         try { conn.dataChannel.send(JSON.stringify({ type: 'done' })); } catch (e) { /* ignore */ }
-        // Detach state/error handlers BEFORE the teardown starts so the normal
-        // ICE-state transition through 'failed' during shutdown does not surface
-        // as a false-positive red alert to the user.
-        silenceConnectionEvents(conn);
-        UI.showAlert('All files sent to ' + NameGenerator.getDisplayName(remoteId), 'success');
-        UI.updateTransferSpeed(0);
-        // Give the receiver time to flush the last chunks before tearing down.
-        setTimeout(() => closeConnection(remoteId), 2500);
-        if (typeof onTransferComplete === 'function') onTransferComplete();
+        UI.updateProgress(100, 'Finishing transfer to ' + NameGenerator.getDisplayName(remoteId) + '…');
+
+        // dataChannel.send() only guarantees the data was handed to the local
+        // buffer, not that the peer actually received it. Wait for the receiver's
+        // final 'progress-ack' (totalDoneBytes >= totalBytes) before declaring
+        // success — otherwise a connection that drops right at the end can show
+        // "success" here while the other side never got the file.
+        conn.completionTimer = setTimeout(() => {
+            conn.completionTimer = null;
+            silenceConnectionEvents(conn);
+            UI.showAlert(
+                'Transfer to ' + NameGenerator.getDisplayName(remoteId) + ' could not be confirmed — it may have failed.',
+                'error'
+            );
+            closeConnection(remoteId);
+        }, COMPLETION_ACK_TIMEOUT_MS);
         return;
     }
 
@@ -274,8 +299,6 @@ const sendNextFile = (conn, remoteId) => {
 
 const streamFile = (conn, remoteId, file, onDone) => {
     let offset = 0;
-    const totalIndex = conn.files.length;
-    const idx = conn.fileIndex + 1;
 
     const sendNext = () => {
         if (conn.aborted) return;
@@ -296,21 +319,11 @@ const streamFile = (conn, remoteId, file, onDone) => {
             }
             const bytes = e.target.result.byteLength;
             offset += bytes;
-            conn.totalDoneBytes += bytes;
 
-            // Bar = monotonic overall batch progress; text = current file detail.
-            const elapsed = (Date.now() - conn.transferStartTime) / 1000;
-            const speed = elapsed > 0 ? conn.totalDoneBytes / elapsed : 0;
-            const overallPercent = Math.round((conn.totalDoneBytes / conn.totalBytes) * 100);
-            const label = totalIndex > 1
-                ? `(${idx}/${totalIndex}) ${file.name}`
-                : file.name;
-
-            UI.updateProgress(
-                overallPercent,
-                `Sending ${label}: ${UI.formatFileSize(offset)} / ${UI.formatFileSize(file.size)}`
-            );
-            UI.updateTransferSpeed(speed);
+            // Progress UI is driven by 'progress-ack' messages from the receiver
+            // (see handleIncomingMessage / dataChannel.onmessage below) so the bar
+            // reflects bytes actually delivered, not just bytes handed to the
+            // local buffer.
 
             if (offset < file.size) {
                 if (conn.dataChannel.bufferedAmount > BUFFER_HIGH_WATERMARK) {
@@ -390,6 +403,19 @@ const handleIncomingMessage = async (conn, remoteId, data) => {
     );
     UI.updateTransferSpeed(speed);
 
+    // Let the sender's progress bar track real delivery instead of how far ahead
+    // its local send buffer has gotten. Throttled so large files don't flood the
+    // channel with one ack per 16KB chunk.
+    const now = Date.now();
+    const isLastChunk = conn.currentReceived >= expected;
+    if (conn.dataChannel && conn.dataChannel.readyState === 'open'
+        && (isLastChunk || now - conn.lastAckSent >= PROGRESS_ACK_INTERVAL_MS)) {
+        conn.lastAckSent = now;
+        try {
+            conn.dataChannel.send(JSON.stringify({ type: 'progress-ack', totalDoneBytes: conn.totalDoneBytes }));
+        } catch (e) { /* ignore */ }
+    }
+
     if (conn.currentReceived >= expected) {
         const fileMeta = conn.currentFile;
         const chunks = conn.currentChunks;
@@ -409,6 +435,12 @@ const finalizeReceivedFile = async (remoteId, fileMeta, chunks, isOnlyFile) => {
         const ok = await verifyBlobHash(blob, fileMeta.hash);
         if (!ok) {
             UI.showAlert('Integrity check FAILED for ' + fileMeta.name + ' — file dropped.', 'error');
+            const conn = connections.get(remoteId);
+            if (conn && conn.dataChannel && conn.dataChannel.readyState === 'open') {
+                try {
+                    conn.dataChannel.send(JSON.stringify({ type: 'integrity-error', name: fileMeta.name }));
+                } catch (e) { /* ignore */ }
+            }
             return;
         }
     }
@@ -442,20 +474,77 @@ const WebRTCService = {
 
         try {
             conn.peerConnection = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-            wireIceCandidate(conn, targetId, senderId);
 
-            conn.dataChannel = conn.peerConnection.createDataChannel('fileTransfer', { ordered: true });
-            conn.dataChannel.binaryType = 'arraybuffer';
-            conn.dataChannel.onopen = () => {
+            // dataChannel.onopen can fire before the ICE connection has settled on its
+            // final candidate pair. Starting the transfer right then risks a drop near
+            // the end (the connection re-stabilizes mid-stream). Wait for BOTH the
+            // channel to be open AND the ICE connection to report 'connected'/'completed'
+            // before streaming any data.
+            let dataChannelOpen = false;
+            let iceStable = false;
+            const tryStartTransfer = () => {
+                if (!dataChannelOpen || !iceStable) return;
                 if (conn.handshakeTimer) {
                     clearTimeout(conn.handshakeTimer);
                     conn.handshakeTimer = null;
                 }
                 sendBatch(conn, targetId);
             };
+
+            wireIceCandidate(conn, targetId, senderId, () => {
+                iceStable = true;
+                tryStartTransfer();
+            });
+
+            conn.dataChannel = conn.peerConnection.createDataChannel('fileTransfer', { ordered: true });
+            conn.dataChannel.binaryType = 'arraybuffer';
+            conn.dataChannel.onopen = () => {
+                dataChannelOpen = true;
+                tryStartTransfer();
+            };
             conn.dataChannel.onerror = (err) => {
                 UI.showAlert('Send channel error: ' + (err.message || err.type || 'unknown'), 'error');
                 closeConnection(targetId);
+            };
+            conn.dataChannel.onmessage = (e) => {
+                let msg;
+                try { msg = JSON.parse(e.data); } catch (err) { return; }
+                if (msg.type === 'integrity-error') {
+                    UI.showAlert(
+                        NameGenerator.getDisplayName(targetId) + ' reported a corrupted transfer for ' + msg.name + '.',
+                        'error'
+                    );
+                } else if (msg.type === 'progress-ack') {
+                    const doneBytes = msg.totalDoneBytes || 0;
+                    const elapsed = (Date.now() - conn.transferStartTime) / 1000;
+                    const speed = elapsed > 0 ? doneBytes / elapsed : 0;
+
+                    if (conn.completionTimer && conn.totalBytes > 0 && doneBytes >= conn.totalBytes) {
+                        // Receiver confirmed it got every byte — now we can safely
+                        // report success and tear down.
+                        clearTimeout(conn.completionTimer);
+                        conn.completionTimer = null;
+                        silenceConnectionEvents(conn);
+                        UI.updateProgress(100, 'All files sent to ' + NameGenerator.getDisplayName(targetId));
+                        UI.updateTransferSpeed(0);
+                        UI.showAlert('All files sent to ' + NameGenerator.getDisplayName(targetId), 'success');
+                        setTimeout(() => closeConnection(targetId), 1000);
+                        if (typeof onTransferComplete === 'function') onTransferComplete();
+                        return;
+                    }
+
+                    const percent = conn.totalBytes > 0 ? Math.round((doneBytes / conn.totalBytes) * 100) : 0;
+                    const file = conn.files[Math.min(conn.fileIndex, conn.files.length - 1)];
+                    const label = conn.files.length > 1
+                        ? `(${conn.fileIndex + 1}/${conn.files.length}) ${file.name}`
+                        : file.name;
+
+                    UI.updateProgress(
+                        percent,
+                        `Sending ${label}: ${UI.formatFileSize(doneBytes)} / ${UI.formatFileSize(conn.totalBytes)}`
+                    );
+                    UI.updateTransferSpeed(speed);
+                }
             };
 
             // Hash each file (with timeout so iOS Photos lazy-load can't hang us)
