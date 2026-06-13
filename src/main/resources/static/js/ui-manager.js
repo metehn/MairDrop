@@ -10,7 +10,7 @@ const UI = {
         }
     },
 
-    updateDeviceList: (devices, currentDeviceId, onSend, canSend) => {
+    updateDeviceList: (devices, currentDeviceId, onSend, canSend, isTransferring) => {
         const listDiv = document.getElementById('deviceList');
         const otherDevices = devices.filter(d => d !== currentDeviceId);
 
@@ -21,8 +21,13 @@ const UI = {
 
         listDiv.innerHTML = '';
         otherDevices.forEach(device => {
+            const transferring = isTransferring && isTransferring(device);
+
             const div = document.createElement('div');
             div.className = 'device-item';
+
+            const top = document.createElement('div');
+            top.className = 'device-item-top';
 
             const info = document.createElement('div');
 
@@ -38,35 +43,54 @@ const UI = {
 
             const sendBtn = document.createElement('button');
             sendBtn.className = 'device-send-btn';
-            sendBtn.textContent = '📤 Send';
-            sendBtn.disabled = !canSend;
-            sendBtn.title = canSend ? 'Send selected file(s)' : 'Select file(s) first';
+            sendBtn.textContent = transferring ? '⏳ Sending…' : '📤 Send';
+            sendBtn.disabled = !canSend || transferring;
+            sendBtn.title = transferring
+                ? 'Transfer in progress'
+                : (canSend ? 'Send selected file(s)' : 'Select file(s) first');
             sendBtn.onclick = (e) => {
                 e.stopPropagation();
                 onSend(device);
             };
 
-            div.appendChild(info);
-            div.appendChild(sendBtn);
+            top.appendChild(info);
+            top.appendChild(sendBtn);
+            div.appendChild(top);
+
+            const progress = document.createElement('div');
+            progress.className = 'device-progress';
+            progress.id = 'progress-' + device;
+            progress.style.display = 'none';
+            progress.innerHTML =
+                '<div class="progress-bar-sm"><div class="progress-fill-sm" id="progress-fill-' + device + '">0%</div></div>' +
+                '<span class="progress-label" id="progress-text-' + device + '"></span>' +
+                '<span class="progress-label progress-speed" id="progress-speed-' + device + '"></span>';
+            div.appendChild(progress);
+
             listDiv.appendChild(div);
         });
     },
 
-    updateProgress: (percent, text) => {
-        const fill = document.getElementById('progressFill');
-        const progressText = document.getElementById('progressText');
-        const section = document.getElementById('transferSection');
-
-        if (section) section.style.display = 'block';
+    updateProgress: (peerId, percent, text) => {
         const clamped = Math.min(Math.max(percent, 0), 100);
-        fill.style.width = clamped + '%';
-        fill.textContent = clamped + '%';
-        progressText.textContent = text;
+
+        const peerProgress = document.getElementById('progress-' + peerId);
+        if (peerProgress) {
+            const peerFill = document.getElementById('progress-fill-' + peerId);
+            const peerText = document.getElementById('progress-text-' + peerId);
+            peerProgress.style.display = 'block';
+            if (peerFill) {
+                peerFill.style.width = clamped + '%';
+                peerFill.textContent = clamped + '%';
+            }
+            if (peerText) peerText.textContent = text;
+        }
     },
 
-    hideProgress: () => {
-        const section = document.getElementById('transferSection');
-        if (section) section.style.display = 'none';
+    hideProgress: (peerId) => {
+        if (!peerId) return;
+        const peerProgress = document.getElementById('progress-' + peerId);
+        if (peerProgress) peerProgress.style.display = 'none';
     },
 
     showAlert: (message, type) => {
@@ -79,8 +103,9 @@ const UI = {
         setTimeout(() => alert.remove(), 5000);
     },
 
-    updateTransferSpeed: (bytesPerSecond) => {
-        const el = document.getElementById('transferSpeed');
+    updateTransferSpeed: (bytesPerSecond, peerId) => {
+        if (!peerId) return;
+        const el = document.getElementById('progress-speed-' + peerId);
         if (!el) return;
         el.textContent = bytesPerSecond > 0
             ? `Speed: ${UI.formatFileSize(Math.round(bytesPerSecond))}/s`

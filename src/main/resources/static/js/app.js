@@ -20,7 +20,7 @@ const sendHint = document.getElementById('sendHint');
 const clearFilesBtn = document.getElementById('clearFilesBtn');
 
 const refreshDeviceList = () => {
-    UI.updateDeviceList(latestDevices, currentDeviceId, sendToDevice, selectedFiles.length > 0);
+    UI.updateDeviceList(latestDevices, currentDeviceId, sendToDevice, selectedFiles.length > 0, WebRTCService.isTransferring);
 };
 
 const onFilesSelected = (files) => {
@@ -83,6 +83,9 @@ const sendToDevice = (targetId) => {
 
 // Make the WebRTC layer notify us when a send finishes so we can clear state.
 onTransferComplete = () => resetSelection();
+
+// Keep the device list's per-device "Sending..." state in sync with active transfers.
+onActiveTransfersChanged = () => refreshDeviceList();
 
 // --- WebSocket / device list ---
 SocketService.connect(currentDeviceId, {
