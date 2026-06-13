@@ -84,12 +84,12 @@ const closeConnection = (remoteDeviceId) => {
     conn.currentChunks = [];
     connections.delete(remoteDeviceId);
 
-    // Hide the progress section if no transfer is active anymore
-    if (connections.size === 0 && typeof UI !== 'undefined' && UI.hideProgress) {
-        setTimeout(() => {
-            if (connections.size === 0) UI.hideProgress();
-        }, 3000);
+    if (typeof UI !== 'undefined' && UI.hideProgress) {
+        setTimeout(() => UI.hideProgress(remoteDeviceId), 3000);
     }
+
+    // Let the device list re-render so this peer's "Sending..." state clears.
+    if (typeof onActiveTransfersChanged === 'function') onActiveTransfersChanged();
 };
 
 const computeSpeed = (doneBytes, startTime) => {
@@ -135,7 +135,7 @@ const finishReceivingIfReady = (conn, remoteId) => {
     if (conn.batchFiles && conn.batchFiles.length > 1) {
         UI.showAlert('All ' + conn.batchFiles.length + ' files received from ' + NameGenerator.getDisplayName(remoteId), 'success');
     }
-    UI.updateTransferSpeed(0);
+    UI.updateTransferSpeed(0, remoteId);
     closeConnection(remoteId);
 };
 
@@ -145,8 +145,8 @@ const reportSendSuccess = (conn, remoteId) => {
         conn.completionTimer = null;
     }
     silenceConnectionEvents(conn);
-    UI.updateProgress(100, 'All files sent to ' + NameGenerator.getDisplayName(remoteId));
-    UI.updateTransferSpeed(0);
+    UI.updateProgress(remoteId, 100, 'All files sent to ' + NameGenerator.getDisplayName(remoteId));
+    UI.updateTransferSpeed(0, remoteId);
     UI.showAlert('All files sent to ' + NameGenerator.getDisplayName(remoteId), 'success');
     setTimeout(() => closeConnection(remoteId), 1000);
     if (typeof onTransferComplete === 'function') onTransferComplete();
@@ -327,7 +327,7 @@ const sendNextFile = (conn, remoteId) => {
     if (conn.aborted) return;
     if (conn.fileIndex >= conn.files.length) {
         trySendMessage(conn.dataChannel, { type: 'done' });
-        UI.updateProgress(100, 'Finishing transfer to ' + NameGenerator.getDisplayName(remoteId) + '…');
+        UI.updateProgress(remoteId, 100, 'Finishing transfer to ' + NameGenerator.getDisplayName(remoteId) + '…');
 
         // Detach state/error handlers now: a brief ICE 'failed' during normal
         // teardown is expected from this point on and must not surface as a
@@ -481,10 +481,11 @@ const handleIncomingMessage = (conn, remoteId, data) => {
         const label = formatFileLabel(conn.currentFile.name, idx, total);
 
         UI.updateProgress(
+            remoteId,
             overallPercent,
             `Receiving ${label}: ${UI.formatFileSize(conn.currentReceived)} / ${UI.formatFileSize(expected)}`
         );
-        UI.updateTransferSpeed(computeSpeed(conn.totalDoneBytes, conn.transferStartTime));
+        UI.updateTransferSpeed(computeSpeed(conn.totalDoneBytes, conn.transferStartTime), remoteId);
     }
 
     if (!isLastChunk) {
@@ -518,7 +519,7 @@ const finalizeReceivedFile = async (remoteId, fileMeta, chunks, isOnlyFile) => {
     const blob = new Blob(chunks);
 
     if (fileMeta.hash) {
-        UI.updateProgress(100, 'Verifying ' + fileMeta.name + '…');
+        UI.updateProgress(remoteId, 100, 'Verifying ' + fileMeta.name + '…');
         const ok = await verifyBlobHash(blob, fileMeta.hash);
         if (!ok) {
             UI.showAlert('Integrity check FAILED for ' + fileMeta.name + ' — file dropped.', 'error');
@@ -555,6 +556,7 @@ const WebRTCService = {
         const conn = newConnectionState();
         conn.files = files;
         connections.set(targetId, conn);
+        if (typeof onActiveTransfersChanged === 'function') onActiveTransfersChanged();
 
         try {
             conn.peerConnection = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -621,19 +623,21 @@ const WebRTCService = {
                     const label = formatFileLabel(file.name, conn.fileIndex + 1, conn.files.length);
 
                     UI.updateProgress(
+                        targetId,
                         percent,
                         `Sending ${label}: ${UI.formatFileSize(doneBytes)} / ${UI.formatFileSize(conn.totalBytes)}`
                     );
-                    UI.updateTransferSpeed(computeSpeed(doneBytes, conn.transferStartTime));
+                    UI.updateTransferSpeed(computeSpeed(doneBytes, conn.transferStartTime), targetId);
                 }
             };
 
             // Hash each file (with timeout so iOS Photos lazy-load can't hang us)
-            UI.updateProgress(0, `Preparing ${files.length} file${files.length > 1 ? 's' : ''}…`);
+            UI.updateProgress(targetId, 0, `Preparing ${files.length} file${files.length > 1 ? 's' : ''}…`);
             conn.fileMetas = [];
             for (let i = 0; i < files.length; i++) {
                 const f = files[i];
                 UI.updateProgress(
+                    targetId,
                     Math.round((i / files.length) * 100),
                     `Hashing (${i + 1}/${files.length}): ${f.name}`
                 );
@@ -644,7 +648,7 @@ const WebRTCService = {
             const offer = await conn.peerConnection.createOffer();
             await conn.peerConnection.setLocalDescription(offer);
 
-            UI.updateProgress(0, 'Waiting for ' + NameGenerator.getDisplayName(targetId) + ' to accept…');
+            UI.updateProgress(targetId, 0, 'Waiting for ' + NameGenerator.getDisplayName(targetId) + ' to accept…');
 
             // Give up if receiver never accepts/connects (data channel open AND
             // ICE stable) in time.
@@ -711,7 +715,7 @@ const WebRTCService = {
             const conn = connections.get(remoteId);
             if (conn) {
                 UI.showAlert(NameGenerator.getDisplayName(remoteId) + ' declined the transfer.', 'info');
-                UI.updateTransferSpeed(0);
+                UI.updateTransferSpeed(0, remoteId);
                 closeConnection(remoteId);
             }
             return;
@@ -732,7 +736,7 @@ const WebRTCService = {
                     }
                 }
                 conn.pendingCandidates = [];
-                UI.updateProgress(0, 'Receiver accepted — establishing connection…');
+                UI.updateProgress(remoteId, 0, 'Receiver accepted — establishing connection…');
             } catch (err) {
                 UI.showAlert('Connection error: ' + err.message, 'error');
                 closeConnection(remoteId);
@@ -758,6 +762,7 @@ const WebRTCService = {
         if (!conn) {
             conn = newConnectionState();
             connections.set(remoteId, conn);
+            if (typeof onActiveTransfersChanged === 'function') onActiveTransfersChanged();
         }
         conn.batchFiles = files;
         conn.totalBytes = files.reduce((s, f) => s + (f.size || 0), 0);
@@ -817,9 +822,14 @@ const WebRTCService = {
 
     activeTransfers: () => connections.size,
 
+    isTransferring: (peerId) => connections.has(peerId),
+
     cancelAll: () => {
         for (const id of Array.from(connections.keys())) closeConnection(id);
     }
 };
 
 let onTransferComplete = null;
+// Notified whenever a connection is opened or closed, so the UI can refresh
+// per-device "Sending..." state without waiting for the next device-list broadcast.
+let onActiveTransfersChanged = null;
