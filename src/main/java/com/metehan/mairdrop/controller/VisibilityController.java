@@ -66,6 +66,12 @@ public class VisibilityController {
         deviceService.setPendingRoomCode(deviceId, roomCode);
         roomService.broadcastRoomUpdate(roomCode);
 
+        String group = deviceService.getGroup(deviceId);
+        if (group != null) {
+            messagingTemplate.convertAndSend("/topic/devices/" + deviceId,
+                    deviceService.getActiveDevicesInGroup(group));
+        }
+
         messagingTemplate.convertAndSend("/topic/visibility/" + deviceId,
                 Map.of("type", "ROOM_HIDDEN"));
         log.info("Device {} hidden from room {}", deviceId, roomCode);
@@ -98,7 +104,10 @@ public class VisibilityController {
         if (group == null) return;
         List<String> devices = deviceService.getActiveDevicesInGroup(group);
         for (String id : devices) {
-            messagingTemplate.convertAndSend("/topic/devices/" + id, devices);
+            // Skip devices in a room — their room view must not be overwritten by a network broadcast
+            if (roomService.getRoomCode(id) == null) {
+                messagingTemplate.convertAndSend("/topic/devices/" + id, devices);
+            }
         }
     }
 

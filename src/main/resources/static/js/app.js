@@ -229,6 +229,7 @@ const DiscoveryManager = {
     },
 
     toggleNetwork() {
+        this.netHiddenByRoom = false; // user is taking manual control; don't auto-restore on room leave
         if (this.netHidden) {
             SocketService.showOnNetwork();
         } else {

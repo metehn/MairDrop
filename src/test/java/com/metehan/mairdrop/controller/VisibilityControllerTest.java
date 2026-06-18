@@ -99,15 +99,18 @@ class VisibilityControllerTest {
     }
 
     @Test
-    @DisplayName("hideFromRoom: leaves room and sends ROOM_HIDDEN")
+    @DisplayName("hideFromRoom: leaves room, restores network view, and sends ROOM_HIDDEN")
     void shouldHideFromRoom() {
         when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
         when(roomService.leaveRoom(deviceId)).thenReturn("ABCDE");
+        when(deviceService.getGroup(deviceId)).thenReturn(group);
+        when(deviceService.getActiveDevicesInGroup(group)).thenReturn(List.of("dev2", "dev3"));
 
         visibilityController.hideFromRoom(headerAccessor);
 
         verify(deviceService).setPendingRoomCode(deviceId, "ABCDE");
         verify(roomService).broadcastRoomUpdate("ABCDE");
+        verify(messagingTemplate).convertAndSend("/topic/devices/" + deviceId, List.of("dev2", "dev3"));
         verify(messagingTemplate).convertAndSend("/topic/visibility/" + deviceId,
                 Map.of("type", "ROOM_HIDDEN"));
     }
