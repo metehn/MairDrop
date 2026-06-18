@@ -11,6 +11,8 @@ const HANDSHAKE_TIMEOUT_MS = 120000;    // sender stops waiting for receiver aft
 const DIALOG_TIMEOUT_MS = 90000;        // auto-decline incoming dialog after 90s of inactivity
 const PROGRESS_ACK_INTERVAL_MS = 250;   // receiver -> sender progress sync, throttled to avoid flooding the channel
 const COMPLETION_ACK_TIMEOUT_MS = 10000; // sender waits this long for a final progress-ack before reporting failure
+const ICE_DISCONNECTED_TIMEOUT_MS = 15000; // if ICE stays 'disconnected' this long, give up
+const STALL_TIMEOUT_MS = 30000;         // if no bytes transferred in this window, close the connection
 
 const newConnectionState = () => ({
     peerConnection: null,
@@ -25,6 +27,10 @@ const newConnectionState = () => ({
     completionTimer: null,
     transferStarted: false,
     finalAckReceived: false,
+
+    // Watchdog timers
+    iceDisconnectedTimer: null,
+    stallTimer: null,
 
     // Receiver side
     batchFiles: null,
@@ -79,6 +85,14 @@ const closeConnection = (remoteDeviceId) => {
         clearTimeout(conn.completionTimer);
         conn.completionTimer = null;
     }
+    if (conn.iceDisconnectedTimer) {
+        clearTimeout(conn.iceDisconnectedTimer);
+        conn.iceDisconnectedTimer = null;
+    }
+    if (conn.stallTimer) {
+        clearTimeout(conn.stallTimer);
+        conn.stallTimer = null;
+    }
     try { if (conn.dataChannel) conn.dataChannel.close(); } catch (e) { /* ignore */ }
     try { if (conn.peerConnection) conn.peerConnection.close(); } catch (e) { /* ignore */ }
     conn.currentChunks = [];
@@ -119,6 +133,16 @@ const trySendMessage = (dataChannel, payload) => {
     }
 };
 
+const resetStallTimer = (conn, remoteId) => {
+    if (conn.stallTimer) clearTimeout(conn.stallTimer);
+    conn.stallTimer = setTimeout(() => {
+        if (!conn.aborted) {
+            UI.showAlert('Transfer stalled — no data for 30s. Connection closed.', 'error');
+            closeConnection(remoteId);
+        }
+    }, STALL_TIMEOUT_MS);
+};
+
 const sendProgressAck = (conn, force) => {
     const now = Date.now();
     if (!force && now - conn.lastAckSent < PROGRESS_ACK_INTERVAL_MS) return;
@@ -144,6 +168,10 @@ const reportSendSuccess = (conn, remoteId) => {
         clearTimeout(conn.completionTimer);
         conn.completionTimer = null;
     }
+    if (conn.stallTimer) {
+        clearTimeout(conn.stallTimer);
+        conn.stallTimer = null;
+    }
     silenceConnectionEvents(conn);
     UI.updateProgress(remoteId, 100, 'All files sent to ' + NameGenerator.getDisplayName(remoteId));
     UI.updateTransferSpeed(0, remoteId);
@@ -156,6 +184,10 @@ const reportSendFailure = (conn, remoteId, message) => {
     if (conn.completionTimer) {
         clearTimeout(conn.completionTimer);
         conn.completionTimer = null;
+    }
+    if (conn.stallTimer) {
+        clearTimeout(conn.stallTimer);
+        conn.stallTimer = null;
     }
     silenceConnectionEvents(conn);
     UI.showAlert(message, 'error');
@@ -179,7 +211,24 @@ const wireIceCandidate = (conn, remoteId, selfId, onIceStable) => {
     conn.peerConnection.oniceconnectionstatechange = () => {
         const state = conn.peerConnection.iceConnectionState;
         console.log('[WebRTC] ICE state for ' + remoteId + ':', state);
-        if (state === 'failed') {
+
+        // Clear any pending disconnected timer on every state change
+        if (conn.iceDisconnectedTimer) {
+            clearTimeout(conn.iceDisconnectedTimer);
+            conn.iceDisconnectedTimer = null;
+        }
+
+        if (state === 'disconnected') {
+            // Transient — network hiccup, mobile switching cell towers, etc.
+            // Give it time to recover before giving up.
+            conn.iceDisconnectedTimer = setTimeout(() => {
+                if (conn.peerConnection &&
+                        conn.peerConnection.iceConnectionState === 'disconnected') {
+                    UI.showAlert('Connection dropped — transfer failed.', 'error');
+                    closeConnection(remoteId);
+                }
+            }, ICE_DISCONNECTED_TIMEOUT_MS);
+        } else if (state === 'failed') {
             UI.showAlert(
                 'Peer connection failed (' + NameGenerator.getDisplayName(remoteId)
                 + '). Check that both devices are on the same network.',
@@ -320,6 +369,7 @@ const sendBatch = (conn, remoteId) => {
     conn.dataChannel.bufferedAmountLowThreshold = BUFFER_LOW_WATERMARK;
     conn.totalBytes = conn.files.reduce((s, f) => s + f.size, 0);
     conn.totalDoneBytes = 0;
+    resetStallTimer(conn, remoteId); // arm watchdog for the full send session
     sendNextFile(conn, remoteId);
 };
 
@@ -442,6 +492,7 @@ const handleIncomingMessage = (conn, remoteId, data) => {
         try { ctrl = JSON.parse(data); } catch (e) { return; }
 
         if (ctrl.type === 'file') {
+            resetStallTimer(conn, remoteId); // sender is alive between files — reset watchdog
             conn.currentFile = ctrl;
             conn.currentFileIndex = ctrl.index;
             conn.currentChunks = [];
@@ -463,6 +514,7 @@ const handleIncomingMessage = (conn, remoteId, data) => {
     // Binary chunk
     if (!conn.currentFile) return;
 
+    resetStallTimer(conn, remoteId); // sender is alive — reset watchdog
     conn.currentChunks.push(data);
     conn.currentReceived += data.byteLength;
     conn.totalDoneBytes += data.byteLength;
@@ -501,6 +553,10 @@ const handleIncomingMessage = (conn, remoteId, data) => {
     conn.currentFile = null;
     conn.currentReceived = 0;
     conn.pendingFinalize++;
+    // Tell the sender we have all bytes and are now verifying — this resets its stall
+    // and completion timers so a slow SHA-256 on a large file doesn't trigger a false
+    // "transfer could not be confirmed" failure before we send the real progress-ack.
+    trySendMessage(conn.dataChannel, { type: 'alive' });
 
     finalizeReceivedFile(remoteId, fileMeta, chunks, total === 1)
         .then((ok) => {
@@ -601,8 +657,23 @@ const WebRTCService = {
                         conn, targetId,
                         NameGenerator.getDisplayName(targetId) + ' reported a corrupted transfer for ' + msg.name + '.'
                     );
+                } else if (msg.type === 'alive') {
+                    // Receiver is verifying a large file hash — reset timers so we don't
+                    // declare failure before verification completes.
+                    resetStallTimer(conn, targetId);
+                    if (conn.completionTimer) {
+                        clearTimeout(conn.completionTimer);
+                        conn.completionTimer = setTimeout(() => {
+                            conn.completionTimer = null;
+                            reportSendFailure(
+                                conn, targetId,
+                                'Transfer to ' + NameGenerator.getDisplayName(targetId) + ' could not be confirmed — it may have failed.'
+                            );
+                        }, COMPLETION_ACK_TIMEOUT_MS);
+                    }
                 } else if (msg.type === 'progress-ack') {
                     const doneBytes = msg.totalDoneBytes || 0;
+                    resetStallTimer(conn, targetId); // receiver is alive — reset watchdog
 
                     if (doneBytes >= conn.totalBytes) {
                         // Receiver confirmed it got every byte. This ack can arrive
@@ -792,6 +863,7 @@ const WebRTCService = {
                 conn.dataChannel = e.channel;
                 conn.dataChannel.binaryType = 'arraybuffer';
                 conn.transferStartTime = Date.now();
+                resetStallTimer(conn, remoteId); // arm watchdog from the moment channel opens
 
                 e.channel.onmessage = (msg) => handleIncomingMessage(conn, remoteId, msg.data);
                 e.channel.onerror = (err) => {

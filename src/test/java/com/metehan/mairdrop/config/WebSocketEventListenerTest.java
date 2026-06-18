@@ -1,6 +1,7 @@
 package com.metehan.mairdrop.config;
 
 import com.metehan.mairdrop.service.DeviceService;
+import com.metehan.mairdrop.service.RoomService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,9 @@ class WebSocketEventListenerTest {
 
     @Mock
     private DeviceService deviceService;
+
+    @Mock
+    private RoomService roomService;
 
     @Mock
     private SimpMessagingTemplate messagingTemplate;
@@ -47,6 +51,7 @@ class WebSocketEventListenerTest {
         when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
         when(deviceService.getGroup(deviceId)).thenReturn(group);
         when(deviceService.getActiveDevicesInGroup(group)).thenReturn(remainingDevices);
+        when(roomService.leaveRoom(deviceId)).thenReturn(null);
 
         webSocketEventListener.handleDisconnect(disconnectEvent);
 
@@ -76,6 +81,7 @@ class WebSocketEventListenerTest {
     void shouldOnlyUnregisterWhenGroupIsNull() {
         when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
         when(deviceService.getGroup(deviceId)).thenReturn(null);
+        when(roomService.leaveRoom(deviceId)).thenReturn(null);
 
         webSocketEventListener.handleDisconnect(disconnectEvent);
 

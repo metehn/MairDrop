@@ -1,3 +1,127 @@
+// --- Public Room Dialog ---
+const RoomDialog = {
+    currentCode: null,
+    qrInstance: null,
+
+    init() {
+        document.getElementById('openRoomBtn').addEventListener('click', () => this.onOpenClick());
+        document.getElementById('roomDiscBadge').addEventListener('click', () => this.open());
+        document.getElementById('roomModalBackdrop').addEventListener('click', () => this.close());
+        document.getElementById('roomCloseBtn').addEventListener('click', () => this.close());
+        document.getElementById('roomLeaveBtn').addEventListener('click', () => this.onLeave());
+        document.getElementById('roomJoinBtn').addEventListener('click', () => this.onJoin());
+
+        const inputs = document.querySelectorAll('.room-char-input');
+        inputs.forEach((input, i) => {
+            input.addEventListener('input', () => {
+                input.value = input.value.replace(/[^a-zA-Z]/g, '').toUpperCase();
+                if (input.value && i < inputs.length - 1) inputs[i + 1].focus();
+                this.evaluateJoinBtn();
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !input.value && i > 0) {
+                    inputs[i - 1].value = '';
+                    inputs[i - 1].focus();
+                    this.evaluateJoinBtn();
+                }
+            });
+            input.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const text = (e.clipboardData.getData('text') || '').replace(/[^a-zA-Z]/g, '').toUpperCase().substring(0, 5);
+                inputs.forEach((inp, j) => { inp.value = text[j] || ''; });
+                const lastFilled = Math.min(text.length, inputs.length) - 1;
+                if (lastFilled >= 0) inputs[lastFilled].focus();
+                this.evaluateJoinBtn();
+            });
+        });
+    },
+
+    onOpenClick() {
+        if (this.currentCode) {
+            this.open();
+        } else {
+            SocketService.createRoom();
+        }
+    },
+
+    open() {
+        document.getElementById('roomModal').style.display = 'flex';
+        this.clearInputs();
+    },
+
+    close() {
+        document.getElementById('roomModal').style.display = 'none';
+        this.clearInputs();
+    },
+
+    onLeave() {
+        SocketService.leaveRoom();
+        this.close();
+    },
+
+    onJoin() {
+        const code = Array.from(document.querySelectorAll('.room-char-input')).map(i => i.value).join('');
+        if (code.length === 5) SocketService.joinRoom(code);
+    },
+
+    setRoom(code) {
+        this.currentCode = code;
+        sessionStorage.setItem('room_id', code);
+
+        document.getElementById('roomCodeDisplay').textContent = code;
+        document.getElementById('roomDiscCode').textContent = code;
+        document.getElementById('roomDiscBadge').style.display = 'inline-flex';
+
+        const qrContainer = document.getElementById('roomQrCode');
+        qrContainer.innerHTML = '';
+        if (this.qrInstance) { this.qrInstance = null; }
+        const url = `${location.origin}${location.pathname}?room_id=${code}`;
+        this.qrInstance = new QRCode(qrContainer, { text: url, width: 150, height: 150, correctLevel: QRCode.CorrectLevel.L });
+    },
+
+    clearRoom() {
+        this.currentCode = null;
+        sessionStorage.removeItem('room_id');
+        document.getElementById('roomDiscBadge').style.display = 'none';
+        document.getElementById('roomCodeDisplay').textContent = '';
+        document.getElementById('roomQrCode').innerHTML = '';
+        this.qrInstance = null;
+    },
+
+    clearInputs() {
+        document.querySelectorAll('.room-char-input').forEach(i => i.value = '');
+        document.getElementById('roomJoinBtn').disabled = true;
+    },
+
+    evaluateJoinBtn() {
+        const filled = Array.from(document.querySelectorAll('.room-char-input')).every(i => i.value.length === 1);
+        document.getElementById('roomJoinBtn').disabled = !filled;
+    },
+
+    handleEvent(event) {
+        switch (event.type) {
+            case 'ROOM_CREATED':
+                this.setRoom(event.roomCode);
+                this.open();
+                DiscoveryManager.onRoomJoined();
+                break;
+            case 'ROOM_JOINED':
+                this.setRoom(event.roomCode);
+                this.close();
+                DiscoveryManager.onRoomJoined();
+                break;
+            case 'ROOM_INVALID':
+                UI.showAlert('Room not found. Check the code and try again.', 'error');
+                break;
+            case 'ROOM_LEFT':
+                this.clearRoom();
+                this.close();
+                DiscoveryManager.onRoomLeft();
+                break;
+        }
+    }
+};
+
 const generateDeviceId = () => {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return 'dev_' + crypto.randomUUID().replace(/-/g, '').substring(0, 9);
@@ -87,13 +211,127 @@ onTransferComplete = () => resetSelection();
 // Keep the device list's per-device "Sending..." state in sync with active transfers.
 onActiveTransfersChanged = () => refreshDeviceList();
 
+// --- Per-badge discovery visibility ---
+const DiscoveryManager = {
+    netHidden: false,
+    roomHidden: false,
+    netHiddenByRoom: false, // true only when WE auto-hid the network on room join
+
+    init() {
+        document.getElementById('netEye').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleNetwork();
+        });
+        document.getElementById('roomEye').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleRoom();
+        });
+    },
+
+    toggleNetwork() {
+        if (this.netHidden) {
+            SocketService.showOnNetwork();
+        } else {
+            SocketService.hideFromNetwork();
+        }
+    },
+
+    toggleRoom() {
+        if (this.roomHidden) {
+            SocketService.showInRoom();
+        } else {
+            SocketService.hideFromRoom();
+        }
+    },
+
+    onRoomJoined() {
+        this.roomHidden = false;
+        this._updateRoomBadge();
+        if (!this.netHidden) {
+            this.netHiddenByRoom = true;
+            SocketService.hideFromNetwork();
+        } else {
+            this.netHiddenByRoom = false; // user already hid manually — not our hide to undo
+        }
+    },
+
+    onRoomLeft() {
+        this.roomHidden = false;
+        this._updateRoomBadge();
+        if (this.netHiddenByRoom) {
+            this.netHiddenByRoom = false;
+            SocketService.showOnNetwork();
+        }
+    },
+
+    handleEvent(event) {
+        switch (event.type) {
+            case 'NETWORK_HIDDEN':
+                this.netHidden = true;
+                this._updateNetBadge();
+                break;
+            case 'NETWORK_VISIBLE':
+                this.netHidden = false;
+                this._updateNetBadge();
+                break;
+            case 'ROOM_HIDDEN':
+                this.roomHidden = true;
+                this._updateRoomBadge();
+                break;
+            case 'ROOM_VISIBLE':
+                this.roomHidden = false;
+                this._updateRoomBadge();
+                break;
+            case 'ROOM_INVALID':
+                // Pending room expired — clear room UI
+                this.roomHidden = false;
+                this._updateRoomBadge();
+                RoomDialog.clearRoom();
+                UI.showAlert('Room has expired. Please create or join a new room.', 'error');
+                break;
+        }
+    },
+
+    _updateNetBadge() {
+        const badge = document.getElementById('netBadge');
+        const eye = document.getElementById('netEye');
+        badge.classList.toggle('disc-active', !this.netHidden);
+        badge.classList.toggle('disc-hidden', this.netHidden);
+        eye.classList.toggle('slashed', this.netHidden);
+    },
+
+    _updateRoomBadge() {
+        const badge = document.getElementById('roomDiscBadge');
+        const eye = document.getElementById('roomEye');
+        badge.classList.toggle('disc-active', !this.roomHidden);
+        badge.classList.toggle('disc-hidden', this.roomHidden);
+        eye.classList.toggle('slashed', this.roomHidden);
+    }
+};
+
+// --- Public Room Dialog init ---
+RoomDialog.init();
+DiscoveryManager.init();
+
+// --- URL param: auto-join room on page load ---
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.has('room_id')) {
+    sessionStorage.setItem('room_id', urlParams.get('room_id').toUpperCase());
+    window.history.replaceState({}, '', window.location.pathname);
+}
+
 // --- WebSocket / device list ---
 SocketService.connect(currentDeviceId, {
     onDevicesUpdate: (devices) => {
         latestDevices = devices;
         refreshDeviceList();
+        if (RoomDialog.currentCode && devices.filter(d => d !== currentDeviceId).length > 0) {
+            RoomDialog.close();
+        }
     },
-    onSignal: (data) => WebRTCService.handleSignal(data, currentDeviceId)
+    onSignal: (data) => WebRTCService.handleSignal(data, currentDeviceId),
+    onRoomEvent: (event) => RoomDialog.handleEvent(event),
+    onVisibilityEvent: (event) => DiscoveryManager.handleEvent(event)
 });
 
 // --- File picker ---

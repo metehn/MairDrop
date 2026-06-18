@@ -54,7 +54,7 @@ public class DeviceService {
             return List.of();
         }
         return devices.values().stream()
-                .filter(d -> d.isActive() && group.equals(d.getNetworkGroup()))
+                .filter(d -> d.isActive() && !d.isHidden() && group.equals(d.getNetworkGroup()))
                 .map(DeviceSession::getDeviceId)
                 .toList();
     }
@@ -67,5 +67,20 @@ public class DeviceService {
     public String getGroup(String deviceId) {
         DeviceSession s = devices.get(deviceId);
         return (s != null) ? s.getNetworkGroup() : null;
+    }
+
+    public void setHidden(String deviceId, boolean hidden) {
+        DeviceSession s = devices.get(deviceId);
+        if (s != null) s.setHidden(hidden);
+    }
+
+    public void setPendingRoomCode(String deviceId, String code) {
+        DeviceSession s = devices.get(deviceId);
+        if (s != null) s.setPendingRoomCode(code);
+    }
+
+    public String getPendingRoomCode(String deviceId) {
+        DeviceSession s = devices.get(deviceId);
+        return (s != null) ? s.getPendingRoomCode() : null;
     }
 }
