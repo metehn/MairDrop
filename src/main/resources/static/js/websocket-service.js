@@ -50,7 +50,28 @@ const SocketService = {
                 }
             });
 
+            stompClient.subscribe('/topic/room/' + deviceId, (msg) => {
+                try {
+                    callbacks.onRoomEvent(JSON.parse(msg.body));
+                } catch (e) {
+                    console.warn('Bad room event payload:', e);
+                }
+            });
+
+            stompClient.subscribe('/topic/visibility/' + deviceId, (msg) => {
+                try {
+                    callbacks.onVisibilityEvent(JSON.parse(msg.body));
+                } catch (e) {
+                    console.warn('Bad visibility event payload:', e);
+                }
+            });
+
             stompClient.send('/app/register', {}, deviceId);
+
+            const savedRoomId = sessionStorage.getItem('room_id');
+            if (savedRoomId) {
+                stompClient.send('/app/rooms/join', {}, savedRoomId);
+            }
         };
 
         const onError = () => {
@@ -73,6 +94,48 @@ const SocketService = {
     refreshDevices: (deviceId) => {
         if (stompClient && stompClient.connected) {
             stompClient.send('/app/register', {}, deviceId);
+        }
+    },
+
+    createRoom: () => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/rooms/create', {}, '');
+        }
+    },
+
+    joinRoom: (code) => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/rooms/join', {}, code);
+        }
+    },
+
+    leaveRoom: () => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/rooms/leave', {}, '');
+        }
+    },
+
+    hideFromNetwork: () => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/visibility/network/hide', {}, '');
+        }
+    },
+
+    showOnNetwork: () => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/visibility/network/show', {}, '');
+        }
+    },
+
+    hideFromRoom: () => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/visibility/room/hide', {}, '');
+        }
+    },
+
+    showInRoom: () => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/visibility/room/show', {}, '');
         }
     }
 };

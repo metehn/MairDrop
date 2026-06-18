@@ -1,6 +1,7 @@
 package com.metehan.mairdrop.config;
 
 import com.metehan.mairdrop.service.DeviceService;
+import com.metehan.mairdrop.service.RoomService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -15,10 +16,13 @@ import java.util.List;
 public class WebSocketEventListener {
     private static final Logger log = LoggerFactory.getLogger(WebSocketEventListener.class);
     private final DeviceService deviceService;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final RoomService roomService;
+    private final SimpMessagingTemplate messagingTemplate; // used for group broadcast on disconnect
 
-    public WebSocketEventListener(DeviceService deviceService, SimpMessagingTemplate messagingTemplate) {
+    public WebSocketEventListener(DeviceService deviceService, RoomService roomService,
+                                  SimpMessagingTemplate messagingTemplate) {
         this.deviceService = deviceService;
+        this.roomService = roomService;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -30,6 +34,11 @@ public class WebSocketEventListener {
         log.info("Connection lost! Session: {}, Device: {}", sessionId, deviceId);
 
         if (deviceId != null) {
+            String roomCode = roomService.leaveRoom(deviceId);
+            if (roomCode != null) {
+                roomService.broadcastRoomUpdate(roomCode);
+            }
+
             String group = deviceService.getGroup(deviceId);
             deviceService.unregisterDevice(deviceId, sessionId);
             if (group != null) {
