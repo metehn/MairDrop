@@ -152,6 +152,20 @@ class RoomControllerTest {
     }
 
     @Test
+    @DisplayName("leaveRoom: falls back to the pending room code when membership was already cleared")
+    void shouldFallBackToPendingRoomCodeWhenNotInRoomMemberSet() {
+        when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
+        when(roomService.leaveRoom(deviceId)).thenReturn(null);
+        when(deviceService.getPendingRoomCode(deviceId)).thenReturn("ABCDE");
+
+        roomController.leaveRoom(headerAccessor);
+
+        verify(deviceService).setPendingRoomCode(deviceId, null);
+        verify(messagingTemplate).convertAndSend("/topic/room/" + deviceId, Map.of("type", "ROOM_LEFT"));
+        verify(roomService).broadcastRoomUpdate("ABCDE");
+    }
+
+    @Test
     @DisplayName("leaveRoom: does nothing when device not found")
     void shouldDoNothingOnLeaveWhenDeviceNotFound() {
         when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(null);

@@ -77,7 +77,14 @@ public class RoomController {
         if (deviceId == null) return;
 
         String roomCode = roomService.leaveRoom(deviceId);
-        if (roomCode == null) return;
+        if (roomCode == null) {
+            // Already removed from the room's member set (e.g. via visibility/room/hide,
+            // which leaves the room immediately and only remembers it as "pending"), but the
+            // client still thinks it's in the room. Fall back to the pending code so leave
+            // still clears state and notifies the client instead of silently no-op'ing.
+            roomCode = deviceService.getPendingRoomCode(deviceId);
+            if (roomCode == null) return;
+        }
         deviceService.setPendingRoomCode(deviceId, null);
 
         messagingTemplate.convertAndSend("/topic/room/" + deviceId,
