@@ -75,6 +75,22 @@ class VisibilityControllerTest {
     }
 
     @Test
+    @DisplayName("hideFromNetwork: skips device-list broadcast to a group member that is in a room")
+    void shouldNotOverwriteRoomDeviceListOnNetworkBroadcast() {
+        String deviceInRoom = "dev2";
+        when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
+        when(deviceService.getGroup(deviceId)).thenReturn(group);
+        when(deviceService.getActiveDevicesInGroup(group)).thenReturn(List.of(deviceId, deviceInRoom));
+        when(roomService.getRoomCode(deviceId)).thenReturn(null);
+        when(roomService.getRoomCode(deviceInRoom)).thenReturn("ABCDE");
+
+        visibilityController.hideFromNetwork(headerAccessor);
+
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/devices/" + deviceInRoom), anyList());
+        verify(messagingTemplate).convertAndSend(eq("/topic/devices/" + deviceId), anyList());
+    }
+
+    @Test
     @DisplayName("showOnNetwork: sets visible and sends NETWORK_VISIBLE")
     void shouldShowOnNetwork() {
         when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
