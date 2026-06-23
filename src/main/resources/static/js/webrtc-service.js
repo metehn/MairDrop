@@ -2,7 +2,13 @@
 // This allows multiple concurrent transfers without state collisions.
 const connections = new Map();
 
-const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+const ICE_SERVERS = (() => {
+    try {
+        const parsed = JSON.parse(ICE_SERVERS_JSON);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch (e) { /* fall through to default */ }
+    return [{ urls: 'stun:stun.l.google.com:19302' }];
+})();
 const CHUNK_SIZE = 16384;
 const BUFFER_HIGH_WATERMARK = CHUNK_SIZE * 64;
 const BUFFER_LOW_WATERMARK = CHUNK_SIZE * 16;

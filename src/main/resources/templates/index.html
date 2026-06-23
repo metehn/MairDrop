@@ -111,6 +111,9 @@
     </div>
 </div>
 
+<script th:inline="javascript">
+    var ICE_SERVERS_JSON = /*[[${iceServersJson}]]*/ '[{"urls":"stun:stun.l.google.com:19302"}]';
+</script>
 <script th:src="@{/js/name-generator.js}"></script>
 <script th:src="@{/js/ui-manager.js}"></script>
 <script th:src="@{/js/websocket-service.js}"></script>
