@@ -48,4 +48,8 @@ jobs:
             docker pull ghcr.io/${{ github.repository_owner }}/mairdrop:test
             docker stop mairdrop || true
             docker rm mairdrop || true
-            docker run -d --name mairdrop -p 8080:8080 --restart always ghcr.io/${{ github.repository_owner }}/mairdrop:test
+            docker run -d --name mairdrop -p 8080:8080 --restart always \
+              -e WEBRTC_TURN_URL="${{ secrets.TEST_TURN_URL }}" \
+              -e WEBRTC_TURN_USERNAME="${{ secrets.TEST_TURN_USERNAME }}" \
+              -e WEBRTC_TURN_CREDENTIAL="${{ secrets.TEST_TURN_CREDENTIAL }}" \
+              ghcr.io/${{ github.repository_owner }}/mairdrop:test
