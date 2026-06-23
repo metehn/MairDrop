@@ -200,6 +200,28 @@ const reportSendFailure = (conn, remoteId, message) => {
     closeConnection(remoteId);
 };
 
+// Inspects the negotiated ICE candidate pair to tell whether data is flowing
+// directly between peers or through a TURN relay, so the UI can show which.
+const reportConnectionType = async (peerConnection, remoteId) => {
+    try {
+        const stats = await peerConnection.getStats();
+        let activePair = null;
+        stats.forEach((report) => {
+            if (report.type === 'candidate-pair' && report.state === 'succeeded'
+                    && (report.selected || report.nominated)) {
+                activePair = report;
+            }
+        });
+        if (!activePair) return;
+
+        const local = stats.get(activePair.localCandidateId);
+        const remote = stats.get(activePair.remoteCandidateId);
+        const isRelay = (local && local.candidateType === 'relay')
+                || (remote && remote.candidateType === 'relay');
+        UI.setConnectionType(remoteId, isRelay);
+    } catch (e) { /* stats unavailable — leave the default styling */ }
+};
+
 const wireIceCandidate = (conn, remoteId, selfId, onIceStable) => {
     conn.peerConnection.onicecandidate = (e) => {
         // Some browsers signal end-of-candidates with a non-null event.candidate
@@ -642,6 +664,7 @@ const WebRTCService = {
 
             wireIceCandidate(conn, targetId, senderId, () => {
                 iceStable = true;
+                reportConnectionType(conn.peerConnection, targetId);
                 tryStartTransfer();
             });
 
@@ -863,7 +886,7 @@ const WebRTCService = {
 
         try {
             conn.peerConnection = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-            wireIceCandidate(conn, remoteId, deviceId);
+            wireIceCandidate(conn, remoteId, deviceId, () => reportConnectionType(conn.peerConnection, remoteId));
 
             conn.peerConnection.ondatachannel = (e) => {
                 conn.dataChannel = e.channel;

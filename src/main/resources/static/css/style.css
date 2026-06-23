@@ -179,8 +179,12 @@ body {
     font-size: 0.7em;
     line-height: 16px;
     text-align: center;
-    transition: width 0.3s ease;
+    transition: width 0.3s ease, background 0.3s ease;
     white-space: nowrap;
+}
+
+.progress-fill-sm.via-relay {
+    background: linear-gradient(135deg, #f7971e 0%, #ffd200 100%);
 }
 
 .progress-label {
