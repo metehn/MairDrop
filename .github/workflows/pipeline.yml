@@ -87,4 +87,4 @@ jobs:
             fi
 
             # 2. Kurulum
-            docker run -d --name mairdrop -p 8080:8080 --restart always ghcr.io/${{ github.repository_owner }}/mairdrop:latest
+            docker run -d --name mairdrop -p 127.0.0.1:8080:8080 --restart always ghcr.io/${{ github.repository_owner }}/mairdrop:latest
