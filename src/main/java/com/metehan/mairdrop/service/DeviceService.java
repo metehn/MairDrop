@@ -3,6 +3,7 @@ package com.metehan.mairdrop.service;
 import com.metehan.mairdrop.model.DeviceSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -14,6 +15,16 @@ public class DeviceService {
     private static final Logger log = LoggerFactory.getLogger(DeviceService.class);
     private final Map<String, DeviceSession> devices = new ConcurrentHashMap<>();
     private final Map<String, String> sessionToDevice = new ConcurrentHashMap<>();
+    private final ConnectionIdentityRegistry identityRegistry;
+
+    // The registry MUST be the application-wide bean (also used by StompAuthChannelInterceptor and
+    // WebSocketEventListener), not a private copy: registration binds the CONNECT-time claim in it,
+    // and the outbound delivery guard reads ownership back from it. The explicit @Autowired keeps
+    // the wiring unambiguous should another constructor ever be added.
+    @Autowired
+    public DeviceService(ConnectionIdentityRegistry identityRegistry) {
+        this.identityRegistry = identityRegistry;
+    }
 
     public boolean registerDevice(String deviceId, String sessionId, String group) {
         return registerDevice(deviceId, null, sessionId, group);
@@ -27,13 +38,29 @@ public class DeviceService {
      * the presented token matches the one already bound to that id (or none was bound yet, e.g.
      * a first registration or a tokenless test/legacy client).
      *
-     * @return true if the registration was accepted, false if it was rejected as a takeover attempt.
+     * <p>Additionally the CONNECT-time ownership claim for the device must still be live and owned
+     * by the registering session (same token): if it expired before this register arrived, or a
+     * newer session claimed the id, the registration is rejected so a device never ends up without
+     * a bound claim (see {@link ConnectionIdentityRegistry#markBound}).
+     *
+     * @return true if the registration was accepted, false if it was rejected as a takeover attempt
+     * or because no live claim was held by this session.
      */
     public boolean registerDevice(String deviceId, String token, String sessionId, String group) {
         DeviceSession existing = devices.get(deviceId);
         if (existing != null && existing.getToken() != null
                 && !existing.getToken().equals(token)) {
             log.warn("Registration rejected for {}: ownership token mismatch (possible id takeover)", deviceId);
+            return false;
+        }
+
+        // The CONNECT-time claim must still be live and owned by THIS session with the same token.
+        // If it expired (no register within the TTL) or a newer session claimed the id, accepting
+        // the registration would leave a device with no bound claim: it would keep acting while
+        // another session (or nobody) receives its topics, and its id could be taken over.
+        if (!identityRegistry.markBound(deviceId, sessionId, token)) {
+            log.warn("Registration rejected for {}: no live CONNECT-time claim owned by session {} "
+                    + "(claim expired, superseded, or token mismatch)", deviceId, sessionId);
             return false;
         }
 

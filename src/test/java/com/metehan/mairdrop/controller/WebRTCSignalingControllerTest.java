@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -19,6 +20,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -83,7 +85,7 @@ class WebRTCSignalingControllerTest {
 
         signalingController.handleOffer(payload, headerAccessor);
 
-        verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/webrtc/" + targetId), any(Object.class));
     }
 
     @Test
@@ -95,7 +97,40 @@ class WebRTCSignalingControllerTest {
 
         signalingController.handleOffer(payload, headerAccessor);
 
-        verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/webrtc/" + targetId), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("refused offer notifies the sender so its UI does not hang until the handshake timeout")
+    void refusedOfferNotifiesSender() {
+        when(deviceService.getGroup(senderId)).thenReturn("1.2.3.4");
+        when(deviceService.getGroup(targetId)).thenReturn("5.6.7.8");
+
+        signalingController.handleOffer(payload, headerAccessor);
+
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(messagingTemplate).convertAndSend(eq("/topic/webrtc/" + senderId), captor.capture());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> refusal = (Map<String, Object>) captor.getValue();
+        assertEquals(Boolean.TRUE, refusal.get("offerRefused"));
+        assertEquals(targetId, refusal.get("senderDeviceId"),
+                "the client keys its connection state by the unreachable peer's id");
+    }
+
+    @Test
+    @DisplayName("refused offer to a hidden target notifies the sender too")
+    void refusedOfferToHiddenTargetNotifiesSender() {
+        when(deviceService.getGroup(senderId)).thenReturn("LOCAL_NETWORK");
+        when(deviceService.getGroup(targetId)).thenReturn("LOCAL_NETWORK");
+        when(deviceService.isHidden(targetId)).thenReturn(true);
+
+        signalingController.handleOffer(payload, headerAccessor);
+
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(messagingTemplate).convertAndSend(eq("/topic/webrtc/" + senderId), captor.capture());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> refusal = (Map<String, Object>) captor.getValue();
+        assertEquals(Boolean.TRUE, refusal.get("offerRefused"));
     }
 
     @Test
@@ -153,6 +188,16 @@ class WebRTCSignalingControllerTest {
         payload.remove("targetDeviceId");
 
         signalingController.handleAnswer(payload, headerAccessor);
+
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("offer with a missing target is dropped")
+    void offerDroppedWhenTargetMissing() {
+        payload.remove("targetDeviceId");
+
+        signalingController.handleOffer(payload, headerAccessor);
 
         verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
     }

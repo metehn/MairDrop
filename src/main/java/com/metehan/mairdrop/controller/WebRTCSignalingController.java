@@ -43,6 +43,8 @@ public class WebRTCSignalingController {
         if (!canReach(senderId, targetDeviceId)) {
             log.warn("WebRTC offer from {} to {} refused: no shared room or visible network group",
                     senderId, targetDeviceId);
+            messagingTemplate.convertAndSend("/topic/webrtc/" + senderId,
+                    Map.of("offerRefused", true, "senderDeviceId", targetDeviceId));
             return;
         }
         messagingTemplate.convertAndSend("/topic/webrtc/" + targetDeviceId, payload);

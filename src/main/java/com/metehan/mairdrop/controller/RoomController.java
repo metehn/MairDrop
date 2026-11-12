@@ -1,6 +1,7 @@
 package com.metehan.mairdrop.controller;
 
 import com.metehan.mairdrop.service.DeviceService;
+import com.metehan.mairdrop.service.RoomCreateRateLimiter;
 import com.metehan.mairdrop.service.RoomJoinRateLimiter;
 import com.metehan.mairdrop.service.RoomService;
 import com.metehan.mairdrop.util.CommonConstants;
@@ -22,14 +23,17 @@ public class RoomController {
     private final RoomService roomService;
     private final DeviceService deviceService;
     private final RoomJoinRateLimiter roomJoinRateLimiter;
+    private final RoomCreateRateLimiter roomCreateRateLimiter;
     private final SimpMessagingTemplate messagingTemplate;
 
     public RoomController(RoomService roomService, DeviceService deviceService,
                           RoomJoinRateLimiter roomJoinRateLimiter,
+                          RoomCreateRateLimiter roomCreateRateLimiter,
                           SimpMessagingTemplate messagingTemplate) {
         this.roomService = roomService;
         this.deviceService = deviceService;
         this.roomJoinRateLimiter = roomJoinRateLimiter;
+        this.roomCreateRateLimiter = roomCreateRateLimiter;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -38,8 +42,28 @@ public class RoomController {
         String deviceId = resolveDeviceId(headerAccessor);
         if (deviceId == null) return;
 
+        // Throttle per-device creation so one client cannot pin rooms open until their close grace
+        // elapses (and spam every peer with broadcasts) faster than they age out. The check and the
+        // record are one atomic step (tryAcquire), so concurrent creates cannot all pass the limit.
+        if (!roomCreateRateLimiter.tryAcquire(deviceId)) {
+            log.warn("Room creation throttled for device {}", deviceId);
+            messagingTemplate.convertAndSend("/topic/room/" + deviceId,
+                    Map.of("type", "ROOM_CREATE_LIMITED",
+                            "message", "Too many rooms created recently. Please wait a moment and try again."));
+            return;
+        }
+
         String oldRoomCode = roomService.getRoomCode(deviceId);
         String roomCode = roomService.createRoom(deviceId);
+        if (roomCode == null) {
+            // The global concurrent-room cap was reached (RoomService logs the reason). Give the
+            // per-device reservation back so a refused creation does not consume its allowance.
+            roomCreateRateLimiter.rollback(deviceId);
+            messagingTemplate.convertAndSend("/topic/room/" + deviceId,
+                    Map.of("type", "ROOM_CREATE_LIMITED",
+                            "message", "The server cannot host more rooms right now. Please try again later."));
+            return;
+        }
 
         if (oldRoomCode != null) roomService.broadcastRoomUpdate(oldRoomCode);
 

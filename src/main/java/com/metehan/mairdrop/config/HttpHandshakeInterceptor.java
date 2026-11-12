@@ -9,10 +9,46 @@ import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
+
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class HttpHandshakeInterceptor implements HandshakeInterceptor {
     private static final Logger log = LoggerFactory.getLogger(HttpHandshakeInterceptor.class);
+
+    private final Set<String> trustedProxyIps;
+
+    /**
+     * Default constructor: no proxy is trusted, so {@code X-Forwarded-For} is never consulted and
+     * the direct peer address decides the network group.
+     */
+    public HttpHandshakeInterceptor() {
+        this(Set.of());
+    }
+
+    public HttpHandshakeInterceptor(Set<String> trustedProxyIps) {
+        this.trustedProxyIps = (trustedProxyIps == null) ? Set.of() : Set.copyOf(trustedProxyIps);
+    }
+
+    /**
+     * Parses a comma-separated property value ({@code mairdrop.trusted-proxy-ips}) into the set of
+     * peer addresses allowed to set {@code X-Forwarded-For}. Blanks are skipped and IPv4-mapped
+     * IPv6 prefixes are stripped so {@code ::ffff:127.0.0.1} and {@code 127.0.0.1} compare equal.
+     */
+    public static Set<String> parseTrustedProxyIps(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return Set.of();
+        }
+        Set<String> ips = new HashSet<>();
+        for (String raw : csv.split(",")) {
+            String ip = normalizeIp(raw.trim());
+            if (!ip.isEmpty()) {
+                ips.add(ip);
+            }
+        }
+        return Set.copyOf(ips);
+    }
 
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
@@ -21,7 +57,11 @@ public class HttpHandshakeInterceptor implements HandshakeInterceptor {
         if (request instanceof ServletServerHttpRequest servletRequest) {
 
             HttpServletRequest httpRequest = servletRequest.getServletRequest();
-            String ip = getClientIp(httpRequest);
+            // Normalise the FINAL resolved address (the trusted XFF hop, or the direct peer) so a
+            // dual-stack peer reported as ::ffff:192.168.1.5 and one reported as 192.168.1.5 land
+            // in the same group and rate-limit key — otherwise one client could split its
+            // rate-limit windows (or its network group) across the two spellings.
+            String ip = normalizeIp(getClientIp(httpRequest));
 
             String group = isLocalNetwork(ip) ? CommonConstants.LOCAL_NETWORK : ip;
 
@@ -46,7 +86,7 @@ public class HttpHandshakeInterceptor implements HandshakeInterceptor {
 
     // Strip the IPv4-mapped IPv6 prefix so dual-stack peers reported as ::ffff:192.168.1.5 still
     // match the plain "192.168." style private-range checks.
-    private String normalizeIp(String ip) {
+    private static String normalizeIp(String ip) {
         if (ip == null) {
             return "";
         }
@@ -72,21 +112,24 @@ public class HttpHandshakeInterceptor implements HandshakeInterceptor {
 
     private String getClientIp(HttpServletRequest request) {
         String remoteAddr = request.getRemoteAddr();
-        String forwarded = request.getHeader(CommonConstants.X_FORWARDED_FOR);
 
-        // Only trust X-Forwarded-For when the direct peer is our own reverse proxy (a
-        // private/loopback address). A client connecting directly could otherwise spoof the header
-        // to land itself in the LOCAL_NETWORK group and reach every device on the real LAN.
-        if (forwarded != null && !forwarded.isBlank() && isLocalNetwork(remoteAddr)) {
-            String[] hops = forwarded.split(",");
-            // The rightmost entry is the address the trusted proxy actually observed; entries to its
-            // left are attacker-controllable and must be ignored. Scan from the right for the first
-            // non-blank hop so a degenerate header (e.g. "," or a trailing comma) neither throws nor
-            // yields an empty group; fall back to the direct peer if every hop is blank.
-            for (int i = hops.length - 1; i >= 0; i--) {
-                String hop = hops[i].trim();
-                if (!hop.isEmpty()) {
-                    return hop;
+        // Only trust X-Forwarded-For when the direct peer is an explicitly configured trusted proxy.
+        // Trusting every private/loopback peer is not enough: in a Docker-published deployment every
+        // client's remoteAddr is the 172.x bridge, so the header would always be trusted and a client
+        // could spoof it to rotate its rate-limit key or land itself in the LOCAL_NETWORK group.
+        if (trustedProxyIps.contains(normalizeIp(remoteAddr))) {
+            String forwarded = request.getHeader(CommonConstants.X_FORWARDED_FOR);
+            if (forwarded != null && !forwarded.isBlank()) {
+                String[] hops = forwarded.split(",");
+                // The rightmost entry is the address the trusted proxy actually observed; entries to
+                // its left are attacker-controllable and must be ignored. Scan from the right for the
+                // first non-blank hop so a degenerate header (e.g. "," or a trailing comma) neither
+                // throws nor yields an empty group; fall back to the direct peer if every hop is blank.
+                for (int i = hops.length - 1; i >= 0; i--) {
+                    String hop = hops[i].trim();
+                    if (!hop.isEmpty()) {
+                        return hop;
+                    }
                 }
             }
         }

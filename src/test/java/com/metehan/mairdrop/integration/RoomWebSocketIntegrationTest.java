@@ -205,6 +205,27 @@ class RoomWebSocketIntegrationTest {
                 "attacker must not receive the victim's device list from a foreign subscription");
     }
 
+    @Test
+    @DisplayName("security: a superseded session stops receiving its former device's topics after a same-token takeover")
+    void supersededSessionStopsReceivingAfterTakeover() throws Exception {
+        TestDevice a = newDevice();
+        a.awaitDeviceList(l -> l.contains(a.deviceId), "A registered");
+
+        // B reconnects with A's device id AND A's token (the same browser identity on a new
+        // session, e.g. a page refresh while the old tab lingers). The newest claimant becomes the
+        // registry's owner, so the outbound delivery guard must stop feeding A's subscriptions.
+        TestDevice b = new TestDevice(objectMapper, a.deviceId);
+        b.connectAndRegister(port);
+        devices.add(b);
+
+        // B's registration triggers a group broadcast to the shared device topic: B (the current
+        // owner) receives it, A (superseded) must not.
+        assertNotNull(b.pollNextDeviceList(2, TimeUnit.SECONDS),
+                "the new owner must keep receiving its device list");
+        assertNull(a.pollNextDeviceList(2, TimeUnit.SECONDS),
+                "the superseded session must not receive its former device's topics anymore");
+    }
+
     private TestDevice newDevice() throws Exception {
         TestDevice device = new TestDevice(objectMapper);
         device.connectAndRegister(port);
@@ -214,7 +235,7 @@ class RoomWebSocketIntegrationTest {
 
     /** A real STOMP client standing in for one browser tab / physical device. */
     private static final class TestDevice {
-        final String deviceId = "dev_" + UUID.randomUUID().toString().substring(0, 8);
+        private final String deviceId;
         private final ObjectMapper objectMapper;
         private final BlockingQueue<String> deviceListFrames = new LinkedBlockingQueue<>();
         private final BlockingQueue<String> roomEventFrames = new LinkedBlockingQueue<>();
@@ -222,7 +243,13 @@ class RoomWebSocketIntegrationTest {
         private StompSession session;
 
         TestDevice(ObjectMapper objectMapper) {
+            this(objectMapper, "dev_" + UUID.randomUUID().toString().substring(0, 8));
+        }
+
+        /** Creates a client that reuses {@code deviceId} (and therefore its token): a same-token takeover. */
+        TestDevice(ObjectMapper objectMapper, String deviceId) {
             this.objectMapper = objectMapper;
+            this.deviceId = deviceId;
         }
 
         void connectAndRegister(int port) throws Exception {
@@ -247,7 +274,10 @@ class RoomWebSocketIntegrationTest {
             session.subscribe("/topic/room/" + deviceId, frameHandler(roomEventFrames));
             session.subscribe("/topic/visibility/" + deviceId, frameHandler(visibilityEventFrames));
 
-            session.send("/app/register", deviceId);
+            // Like the real frontend, the register payload carries the same token that was sent on
+            // CONNECT ("deviceId|token"); the server only binds a registration whose token matches
+            // the CONNECT-time claim.
+            session.send("/app/register", deviceId + "|" + "tok-" + deviceId);
         }
 
         void send(String destination, String payload) {

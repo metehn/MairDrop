@@ -1,6 +1,7 @@
 package com.metehan.mairdrop.controller;
 
 import com.metehan.mairdrop.service.DeviceService;
+import com.metehan.mairdrop.service.RoomCreateRateLimiter;
 import com.metehan.mairdrop.service.RoomJoinRateLimiter;
 import com.metehan.mairdrop.service.RoomService;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +25,7 @@ class RoomControllerTest {
     @Mock private RoomService roomService;
     @Mock private DeviceService deviceService;
     @Mock private RoomJoinRateLimiter roomJoinRateLimiter;
+    @Mock private RoomCreateRateLimiter roomCreateRateLimiter;
     @Mock private SimpMessagingTemplate messagingTemplate;
     @Mock private SimpMessageHeaderAccessor headerAccessor;
 
@@ -36,8 +38,9 @@ class RoomControllerTest {
     @BeforeEach
     void setUp() {
         when(headerAccessor.getSessionId()).thenReturn(sessionId);
-        // Joins are allowed by default; the rate-limit test overrides this.
+        // Joins and creates are allowed by default; the rate-limit tests override this.
         lenient().when(roomJoinRateLimiter.isAllowed(anyString())).thenReturn(true);
+        lenient().when(roomCreateRateLimiter.tryAcquire(anyString())).thenReturn(true);
     }
 
     @Test
@@ -52,6 +55,39 @@ class RoomControllerTest {
         verify(messagingTemplate).convertAndSend("/topic/room/" + deviceId,
                 Map.of("type", "ROOM_CREATED", "roomCode", "ABCDE"));
         verify(roomService).broadcastRoomUpdate("ABCDE");
+        verify(roomCreateRateLimiter).tryAcquire(deviceId);
+        verify(roomCreateRateLimiter, never()).rollback(anyString());
+    }
+
+    @Test
+    @DisplayName("createRoom: a rate-limited device gets ROOM_CREATE_LIMITED and the room service is untouched")
+    void shouldRefuseCreateWhenRateLimited() {
+        when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
+        when(roomCreateRateLimiter.tryAcquire(deviceId)).thenReturn(false);
+
+        roomController.createRoom(headerAccessor);
+
+        verify(roomService, never()).createRoom(any());
+        verify(messagingTemplate).convertAndSend("/topic/room/" + deviceId,
+                Map.of("type", "ROOM_CREATE_LIMITED",
+                        "message", "Too many rooms created recently. Please wait a moment and try again."));
+        verify(roomCreateRateLimiter, never()).rollback(anyString());
+    }
+
+    @Test
+    @DisplayName("createRoom: a refused creation at the global cap gets ROOM_CREATE_LIMITED and rolls back the reservation")
+    void shouldSendRoomCreateLimitedWhenGlobalCapReached() {
+        when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
+        when(roomService.getRoomCode(deviceId)).thenReturn(null);
+        when(roomService.createRoom(deviceId)).thenReturn(null);
+
+        roomController.createRoom(headerAccessor);
+
+        verify(messagingTemplate).convertAndSend("/topic/room/" + deviceId,
+                Map.of("type", "ROOM_CREATE_LIMITED",
+                        "message", "The server cannot host more rooms right now. Please try again later."));
+        verify(roomService, never()).broadcastRoomUpdate(any());
+        verify(roomCreateRateLimiter).rollback(deviceId);
     }
 
     @Test
