@@ -12,6 +12,9 @@ module.exports = defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://localhost:8080',
+    // Required for the multi-file receive tests, which assert the first file's
+    // auto-download and the per-file "Save" button downloads.
+    acceptDownloads: true,
     trace: 'retain-on-failure',
     // A fixed viewport (rather than null) is required: with a null viewport the page has no
     // defined size and elements never become "actionable", so every click times out — headless

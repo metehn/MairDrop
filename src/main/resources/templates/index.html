@@ -28,11 +28,11 @@
         <div class="discovery-section">
             <div class="disc-badges">
                 <span id="netBadge" class="disc-badge disc-active">
-                    🌐 This network <span class="eye-toggle" id="netEye">👁</span>
+                    🌐 This network <span class="eye-toggle" id="netEye" role="button" tabindex="0" aria-label="Toggle network visibility">👁</span>
                 </span>
                 <span id="roomDiscBadge" class="disc-badge disc-active" style="display:none">
                     <span id="roomDiscMain">🔗 <span id="roomDiscCode"></span></span>
-                    <span class="eye-toggle" id="roomEye">👁</span>
+                    <span class="eye-toggle" id="roomEye" role="button" tabindex="0" aria-label="Toggle room visibility">👁</span>
                 </span>
             </div>
             <div class="disc-actions">
@@ -82,11 +82,16 @@
                 </div>
             </div>
         </div>
+
+        <div class="section" id="receivedFilesPanel" style="display:none">
+            <h2>📥 Received Files</h2>
+            <ul id="receivedFilesList"></ul>
+        </div>
     </div>
 </div>
 
 <!-- Public Room Modal -->
-<div id="roomModal" class="room-modal" style="display:none">
+<div id="roomModal" class="room-modal" role="dialog" aria-modal="true" aria-label="Public Room" style="display:none">
     <div class="room-modal-backdrop" id="roomModalBackdrop"></div>
     <div class="room-modal-content">
         <h3 class="room-modal-title">Public Room</h3>
@@ -95,11 +100,11 @@
         <p class="room-hint">Share this code or scan the QR to invite others</p>
         <div class="room-divider">— or enter a code to join —</div>
         <div class="room-char-inputs">
-            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false">
-            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false">
-            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false">
-            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false">
-            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false">
+            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false" aria-label="Room code character 1">
+            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false" aria-label="Room code character 2">
+            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false" aria-label="Room code character 3">
+            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false" aria-label="Room code character 4">
+            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false" aria-label="Room code character 5">
         </div>
         <div class="room-modal-buttons">
             <button id="roomCloseBtn" class="room-btn room-btn-secondary">Close</button>

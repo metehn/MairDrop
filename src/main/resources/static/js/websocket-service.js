@@ -74,8 +74,11 @@ const SocketService = {
             // from one client in order (setPreserveReceiveOrder), so register → join → hide lands in
             // the right sequence; sending a room-hide before the join would no-op (not in a room yet)
             // and leave client and server disagreeing about visibility.
+            // A user who hid from the room must STAY hidden after a reload: skip the auto-rejoin
+            // (app.js drops the saved room_id in that case too) so they don't silently reappear
+            // in the room's roster.
             const savedRoomId = sessionStorage.getItem('room_id');
-            if (savedRoomId) {
+            if (savedRoomId && sessionStorage.getItem('mairdrop_room_hidden') !== '1') {
                 stompClient.send('/app/rooms/join', {}, savedRoomId);
             }
             if (callbacks.onRegistered) callbacks.onRegistered();

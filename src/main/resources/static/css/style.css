@@ -327,6 +327,58 @@ body {
     color: #6c757d;
 }
 
+/* Received Files Panel (batch downloads) */
+#receivedFilesList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.received-file-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: white;
+    padding: 10px 16px;
+    margin: 8px 0;
+    border-radius: 10px;
+    border-left: 5px solid #667eea;
+}
+
+.received-file-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.received-file-size {
+    color: #6c757d;
+    font-size: 0.85em;
+    white-space: nowrap;
+}
+
+.received-file-save {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 7px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9em;
+    cursor: pointer;
+    white-space: nowrap;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(102, 126, 234, 0.3);
+}
+
+.received-file-save:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(102, 126, 234, 0.3);
+}
+
 .empty-state-icon {
     font-size: 4em;
     opacity: 0.3;
