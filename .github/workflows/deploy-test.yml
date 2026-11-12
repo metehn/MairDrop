@@ -38,7 +38,7 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/mairdrop:test
       - name: Deploy to Test Server via SSH
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.TEST_SERVER_HOST }}
           username: ${{ secrets.TEST_SERVER_USER }}

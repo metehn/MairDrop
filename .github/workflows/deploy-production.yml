@@ -44,7 +44,7 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/mairdrop:latest
 
       - name: Deploy to Production Server via SSH
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.REMOTE_HOST }}
           username: ${{ secrets.REMOTE_USER }}
