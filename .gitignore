@@ -34,3 +34,12 @@ build/
 
 ### Claude Code ###
 .claude/
+
+_bmad
+_bmad-output
+
+### Node / Playwright ###
+node_modules/
+playwright-report/
+test-results/
+blob-report/

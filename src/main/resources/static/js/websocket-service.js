@@ -1,6 +1,7 @@
 let stompClient = null;
 let activeSocket = null;
 let reconnectTimer = null;
+let registerPayload = null; // "deviceId|token" (or bare deviceId) reused for every (re)registration
 
 const STOMP_HEARTBEAT_MS = 10000;
 const RECONNECT_DELAY_MS = 3000;
@@ -23,6 +24,7 @@ const closePreviousSocket = () => {
 const SocketService = {
     connect: (deviceId, callbacks) => {
         closePreviousSocket();
+        registerPayload = callbacks.token ? (deviceId + '|' + callbacks.token) : deviceId;
 
         activeSocket = new SockJS('/ws');
         stompClient = Stomp.over(activeSocket);
@@ -50,7 +52,36 @@ const SocketService = {
                 }
             });
 
-            stompClient.send('/app/register', {}, deviceId);
+            stompClient.subscribe('/topic/room/' + deviceId, (msg) => {
+                try {
+                    callbacks.onRoomEvent(JSON.parse(msg.body));
+                } catch (e) {
+                    console.warn('Bad room event payload:', e);
+                }
+            });
+
+            stompClient.subscribe('/topic/visibility/' + deviceId, (msg) => {
+                try {
+                    callbacks.onVisibilityEvent(JSON.parse(msg.body));
+                } catch (e) {
+                    console.warn('Bad visibility event payload:', e);
+                }
+            });
+
+            stompClient.send('/app/register', {}, registerPayload);
+
+            // Rejoin any saved room BEFORE re-asserting visibility. The server processes messages
+            // from one client in order (setPreserveReceiveOrder), so register → join → hide lands in
+            // the right sequence; sending a room-hide before the join would no-op (not in a room yet)
+            // and leave client and server disagreeing about visibility.
+            // A user who hid from the room must STAY hidden after a reload: skip the auto-rejoin
+            // (app.js drops the saved room_id in that case too) so they don't silently reappear
+            // in the room's roster.
+            const savedRoomId = sessionStorage.getItem('room_id');
+            if (savedRoomId && sessionStorage.getItem('mairdrop_room_hidden') !== '1') {
+                stompClient.send('/app/rooms/join', {}, savedRoomId);
+            }
+            if (callbacks.onRegistered) callbacks.onRegistered();
         };
 
         const onError = () => {
@@ -61,7 +92,14 @@ const SocketService = {
             );
         };
 
-        stompClient.connect({}, onConnected, onError);
+        // Identify the connection up front so the server can bind this device id to the session
+        // (proving ownership with the token) and reject any attempt to subscribe to another
+        // device's topics. The token is the same secret used for registration; it is never shared
+        // with peers.
+        const connectHeaders = callbacks.token
+            ? { deviceId: deviceId, token: callbacks.token }
+            : { deviceId: deviceId };
+        stompClient.connect(connectHeaders, onConnected, onError);
     },
 
     sendSignal: (type, data) => {
@@ -70,9 +108,51 @@ const SocketService = {
         }
     },
 
-    refreshDevices: (deviceId) => {
+    refreshDevices: () => {
+        if (stompClient && stompClient.connected && registerPayload) {
+            stompClient.send('/app/register', {}, registerPayload);
+        }
+    },
+
+    createRoom: () => {
         if (stompClient && stompClient.connected) {
-            stompClient.send('/app/register', {}, deviceId);
+            stompClient.send('/app/rooms/create', {}, '');
+        }
+    },
+
+    joinRoom: (code) => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/rooms/join', {}, code);
+        }
+    },
+
+    leaveRoom: () => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/rooms/leave', {}, '');
+        }
+    },
+
+    hideFromNetwork: () => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/visibility/network/hide', {}, '');
+        }
+    },
+
+    showOnNetwork: () => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/visibility/network/show', {}, '');
+        }
+    },
+
+    hideFromRoom: () => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/visibility/room/hide', {}, '');
+        }
+    },
+
+    showInRoom: () => {
+        if (stompClient && stompClient.connected) {
+            stompClient.send('/app/visibility/room/show', {}, '');
         }
     }
 };

@@ -1,6 +1,7 @@
 package com.metehan.mairdrop.controller;
 
 import com.metehan.mairdrop.service.DeviceService;
+import com.metehan.mairdrop.service.GroupBroadcaster;
 import com.metehan.mairdrop.util.CommonConstants;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -9,13 +10,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -25,38 +24,58 @@ class WebSocketControllerTest {
     private DeviceService deviceService;
 
     @Mock
-    private SimpMessagingTemplate messagingTemplate;
+    private GroupBroadcaster groupBroadcaster;
 
     @InjectMocks
     private WebSocketController webSocketController;
 
     private final String deviceId = "test-device-123";
+    private final String token = "secret-token";
     private final String sessionId = "session-xyz";
     private final String group = "LOCAL_NETWORK";
 
-    @Test
-    @DisplayName("The device must be registered and the updated list sent to everyone in the group.")
-    void shouldRegisterDeviceAndBroadcastList() {
+    private SimpMessageHeaderAccessor headerWithGroup() {
         SimpMessageHeaderAccessor headerAccessor = mock(SimpMessageHeaderAccessor.class);
         Map<String, Object> sessionAttributes = new HashMap<>();
         sessionAttributes.put(CommonConstants.NETWORK_GROUP, group);
-
         when(headerAccessor.getSessionAttributes()).thenReturn(sessionAttributes);
         when(headerAccessor.getSessionId()).thenReturn(sessionId);
+        return headerAccessor;
+    }
 
-        List<String> activeDevices = Arrays.asList("test-device-123", "other-device-456");
-        when(deviceService.getActiveDevicesInGroup(group)).thenReturn(activeDevices);
+    @Test
+    @DisplayName("The device must be registered (with its token) and the group re-broadcast.")
+    void shouldRegisterDeviceAndBroadcastList() {
+        SimpMessageHeaderAccessor headerAccessor = headerWithGroup();
+        when(deviceService.registerDevice(deviceId, token, sessionId, group)).thenReturn(true);
+
+        webSocketController.register(deviceId + "|" + token, headerAccessor);
+
+        verify(deviceService).registerDevice(deviceId, token, sessionId, group);
+        verify(groupBroadcaster).broadcastGroup(group);
+    }
+
+    @Test
+    @DisplayName("A bare deviceId (no token separator) still registers with a null token.")
+    void shouldRegisterTokenlessPayload() {
+        SimpMessageHeaderAccessor headerAccessor = headerWithGroup();
+        when(deviceService.registerDevice(deviceId, null, sessionId, group)).thenReturn(true);
 
         webSocketController.register(deviceId, headerAccessor);
 
-        verify(deviceService).registerDevice(deviceId, sessionId, group);
+        verify(deviceService).registerDevice(deviceId, null, sessionId, group);
+        verify(groupBroadcaster).broadcastGroup(group);
+    }
 
-        verify(deviceService).getActiveDevicesInGroup(group);
+    @Test
+    @DisplayName("A rejected registration (token mismatch) must not broadcast.")
+    void shouldNotBroadcastWhenRegistrationRejected() {
+        SimpMessageHeaderAccessor headerAccessor = headerWithGroup();
+        when(deviceService.registerDevice(deviceId, token, sessionId, group)).thenReturn(false);
 
-        verify(messagingTemplate).convertAndSend("/topic/devices/test-device-123", activeDevices);
-        verify(messagingTemplate).convertAndSend("/topic/devices/other-device-456", activeDevices);
+        webSocketController.register(deviceId + "|" + token, headerAccessor);
 
-        verify(messagingTemplate, times(2)).convertAndSend(anyString(), anyList());
+        verify(groupBroadcaster, never()).broadcastGroup(anyString());
     }
 
     @Test
@@ -66,8 +85,8 @@ class WebSocketControllerTest {
 
         webSocketController.register(null, headerAccessor);
 
-        verify(deviceService, never()).registerDevice(anyString(), anyString(), anyString());
-        verify(messagingTemplate, never()).convertAndSend(anyString(), anyList());
+        verify(deviceService, never()).registerDevice(anyString(), any(), anyString(), anyString());
+        verify(groupBroadcaster, never()).broadcastGroup(anyString());
     }
 
     @Test
@@ -77,8 +96,8 @@ class WebSocketControllerTest {
 
         webSocketController.register("   ", headerAccessor);
 
-        verify(deviceService, never()).registerDevice(anyString(), anyString(), anyString());
-        verify(messagingTemplate, never()).convertAndSend(anyString(), anyList());
+        verify(deviceService, never()).registerDevice(anyString(), any(), anyString(), anyString());
+        verify(groupBroadcaster, never()).broadcastGroup(anyString());
     }
 
     @Test
@@ -89,7 +108,7 @@ class WebSocketControllerTest {
 
         webSocketController.register(deviceId, headerAccessor);
 
-        verify(deviceService, never()).registerDevice(anyString(), anyString(), anyString());
+        verify(deviceService, never()).registerDevice(anyString(), any(), anyString(), anyString());
     }
 
     @Test
@@ -100,6 +119,6 @@ class WebSocketControllerTest {
 
         webSocketController.register(deviceId, headerAccessor);
 
-        verify(deviceService, never()).registerDevice(anyString(), anyString(), anyString());
+        verify(deviceService, never()).registerDevice(anyString(), any(), anyString(), anyString());
     }
 }

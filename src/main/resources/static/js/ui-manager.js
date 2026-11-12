@@ -93,6 +93,11 @@ const UI = {
         if (peerProgress) peerProgress.style.display = 'none';
     },
 
+    setConnectionType: (peerId, isRelay) => {
+        const peerFill = document.getElementById('progress-fill-' + peerId);
+        if (peerFill) peerFill.classList.toggle('via-relay', isRelay);
+    },
+
     showAlert: (message, type) => {
         const container = document.getElementById('alertContainer');
         const alert = document.createElement('div');

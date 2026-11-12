@@ -8,6 +8,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.5.1/dist/sockjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <link rel="stylesheet" th:href="@{/css/style.css}">
 </head>
@@ -23,6 +24,20 @@
         <h1>📁 P2P File Sharing</h1>
         <div class="device-id">
             🖥️ Device ID: <strong id="deviceIdSpan"></strong>
+        </div>
+        <div class="discovery-section">
+            <div class="disc-badges">
+                <span id="netBadge" class="disc-badge disc-active">
+                    🌐 This network <span class="eye-toggle" id="netEye" role="button" tabindex="0" aria-label="Toggle network visibility">👁</span>
+                </span>
+                <span id="roomDiscBadge" class="disc-badge disc-active" style="display:none">
+                    <span id="roomDiscMain">🔗 <span id="roomDiscCode"></span></span>
+                    <span class="eye-toggle" id="roomEye" role="button" tabindex="0" aria-label="Toggle room visibility">👁</span>
+                </span>
+            </div>
+            <div class="disc-actions">
+                <button id="openRoomBtn" class="disc-action-btn">🔗 Public Room</button>
+            </div>
         </div>
     </div>
 
@@ -67,9 +82,43 @@
                 </div>
             </div>
         </div>
+
+        <div class="section" id="receivedFilesPanel" style="display:none">
+            <h2>📥 Received Files</h2>
+            <ul id="receivedFilesList"></ul>
+        </div>
     </div>
 </div>
 
+<!-- Public Room Modal -->
+<div id="roomModal" class="room-modal" role="dialog" aria-modal="true" aria-label="Public Room" style="display:none">
+    <div class="room-modal-backdrop" id="roomModalBackdrop"></div>
+    <div class="room-modal-content">
+        <h3 class="room-modal-title">Public Room</h3>
+        <div id="roomQrCode" class="room-qr"></div>
+        <div id="roomCodeDisplay" class="room-code-display"></div>
+        <p class="room-hint">Share this code or scan the QR to invite others</p>
+        <div class="room-divider">— or enter a code to join —</div>
+        <div class="room-char-inputs">
+            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false" aria-label="Room code character 1">
+            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false" aria-label="Room code character 2">
+            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false" aria-label="Room code character 3">
+            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false" aria-label="Room code character 4">
+            <input class="room-char-input" maxlength="1" autocomplete="off" spellcheck="false" aria-label="Room code character 5">
+        </div>
+        <div class="room-modal-buttons">
+            <button id="roomCloseBtn" class="room-btn room-btn-secondary">Close</button>
+            <div class="room-btn-group">
+                <button id="roomLeaveBtn" class="room-btn room-btn-danger">Leave</button>
+                <button id="roomJoinBtn" class="room-btn room-btn-primary" disabled>Join</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script th:inline="javascript">
+    var ICE_SERVERS_JSON = /*[[${iceServersJson}]]*/ '[{"urls":"stun:stun.l.google.com:19302"}]';
+</script>
 <script th:src="@{/js/name-generator.js}"></script>
 <script th:src="@{/js/ui-manager.js}"></script>
 <script th:src="@{/js/websocket-service.js}"></script>

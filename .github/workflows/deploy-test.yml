@@ -38,7 +38,7 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/mairdrop:test
       - name: Deploy to Test Server via SSH
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.TEST_SERVER_HOST }}
           username: ${{ secrets.TEST_SERVER_USER }}
@@ -49,7 +49,7 @@ jobs:
             docker stop mairdrop || true
             docker rm mairdrop || true
             docker run -d --name mairdrop -p 127.0.0.1:8080:8080 --restart always \
-              -e WEBRTC_TURN_URL=turn:test.mairdrop.online:3478 \
-              -e WEBRTC_TURN_USERNAME=mairdrop \
-              -e WEBRTC_TURN_CREDENTIAL=${{ secrets.TEST_TURN_CREDENTIAL }} \
+              -e WEBRTC_TURN_URL="${{ secrets.TEST_TURN_URL }}" \
+              -e WEBRTC_TURN_USERNAME="${{ secrets.TEST_TURN_USERNAME }}" \
+              -e WEBRTC_TURN_CREDENTIAL="${{ secrets.TEST_TURN_CREDENTIAL }}" \
               ghcr.io/${{ github.repository_owner }}/mairdrop:test

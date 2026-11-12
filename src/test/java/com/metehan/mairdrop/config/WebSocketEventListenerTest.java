@@ -1,6 +1,9 @@
 package com.metehan.mairdrop.config;
 
+import com.metehan.mairdrop.service.ConnectionIdentityRegistry;
 import com.metehan.mairdrop.service.DeviceService;
+import com.metehan.mairdrop.service.GroupBroadcaster;
+import com.metehan.mairdrop.service.RoomService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -8,11 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
-
-import java.util.Arrays;
-import java.util.List;
 
 import static org.mockito.Mockito.*;
 
@@ -23,7 +22,13 @@ class WebSocketEventListenerTest {
     private DeviceService deviceService;
 
     @Mock
-    private SimpMessagingTemplate messagingTemplate;
+    private RoomService roomService;
+
+    @Mock
+    private GroupBroadcaster groupBroadcaster;
+
+    @Mock
+    private ConnectionIdentityRegistry identityRegistry;
 
     @InjectMocks
     private WebSocketEventListener webSocketEventListener;
@@ -40,24 +45,44 @@ class WebSocketEventListenerTest {
     }
 
     @Test
-    @DisplayName("When the connection is lost, the device should be deleted and the updated list should be sent to the group members.")
+    @DisplayName("When the connection is lost, the device is removed and the group re-broadcast.")
     void shouldHandleDisconnectAndNotifyGroup() {
-        List<String> remainingDevices = Arrays.asList("device-1", "device-2");
-
         when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
         when(deviceService.getGroup(deviceId)).thenReturn(group);
-        when(deviceService.getActiveDevicesInGroup(group)).thenReturn(remainingDevices);
+        when(deviceService.unregisterDevice(deviceId, sessionId)).thenReturn(true);
+        when(roomService.leaveRoom(deviceId)).thenReturn(null);
 
         webSocketEventListener.handleDisconnect(disconnectEvent);
 
         verify(deviceService).unregisterDevice(deviceId, sessionId);
+        verify(groupBroadcaster).broadcastGroup(group);
+    }
 
-        verify(deviceService).getActiveDevicesInGroup(group);
+    @Test
+    @DisplayName("A device that was in a room broadcasts that room's roster on disconnect.")
+    void shouldBroadcastRoomOnDisconnectWhenInRoom() {
+        when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
+        when(deviceService.getGroup(deviceId)).thenReturn(group);
+        when(deviceService.unregisterDevice(deviceId, sessionId)).thenReturn(true);
+        when(roomService.leaveRoom(deviceId)).thenReturn("ABCDE");
 
-        verify(messagingTemplate).convertAndSend("/topic/devices/device-1", remainingDevices);
-        verify(messagingTemplate).convertAndSend("/topic/devices/device-2", remainingDevices);
+        webSocketEventListener.handleDisconnect(disconnectEvent);
 
-        verify(messagingTemplate, times(2)).convertAndSend(anyString(), anyList());
+        verify(roomService).broadcastRoomUpdate("ABCDE");
+        verify(groupBroadcaster).broadcastGroup(group);
+    }
+
+    @Test
+    @DisplayName("A stale disconnect (device already reconnected) must not leave its room or broadcast.")
+    void shouldIgnoreStaleDisconnect() {
+        when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
+        when(deviceService.getGroup(deviceId)).thenReturn(group);
+        when(deviceService.unregisterDevice(deviceId, sessionId)).thenReturn(false);
+
+        webSocketEventListener.handleDisconnect(disconnectEvent);
+
+        verify(roomService, never()).leaveRoom(anyString());
+        verify(groupBroadcaster, never()).broadcastGroup(anyString());
     }
 
     @Test
@@ -68,18 +93,20 @@ class WebSocketEventListenerTest {
         webSocketEventListener.handleDisconnect(disconnectEvent);
 
         verify(deviceService, never()).unregisterDevice(anyString(), anyString());
-        verify(messagingTemplate, never()).convertAndSend(anyString(), anyList());
+        verify(groupBroadcaster, never()).broadcastGroup(anyString());
     }
 
     @Test
-    @DisplayName("If group information cannot be found, simply delete the device; do not send any messages.")
+    @DisplayName("If group is null, the device is still unregistered; broadcastGroup(null) no-ops.")
     void shouldOnlyUnregisterWhenGroupIsNull() {
         when(deviceService.getDeviceIdBySessionId(sessionId)).thenReturn(deviceId);
         when(deviceService.getGroup(deviceId)).thenReturn(null);
+        when(deviceService.unregisterDevice(deviceId, sessionId)).thenReturn(true);
+        when(roomService.leaveRoom(deviceId)).thenReturn(null);
 
         webSocketEventListener.handleDisconnect(disconnectEvent);
 
         verify(deviceService).unregisterDevice(deviceId, sessionId);
-        verify(messagingTemplate, never()).convertAndSend(anyString(), anyList());
+        verify(groupBroadcaster).broadcastGroup(null);
     }
 }
