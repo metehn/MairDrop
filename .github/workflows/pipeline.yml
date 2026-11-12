@@ -122,7 +122,7 @@ jobs:
             fi
 
             # 2. Kurulum
-            docker run -d --name mairdrop -p 8080:8080 --restart always \
+            docker run -d --name mairdrop -p 127.0.0.1:8080:8080 --restart always \
               -e WEBRTC_TURN_URL="${{ secrets.TURN_URL }}" \
               -e WEBRTC_TURN_USERNAME="${{ secrets.TURN_USERNAME }}" \
               -e WEBRTC_TURN_CREDENTIAL="${{ secrets.TURN_CREDENTIAL }}" \
